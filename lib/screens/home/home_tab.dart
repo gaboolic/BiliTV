@@ -3,8 +3,11 @@ import 'package:flutter/services.dart';
 import 'package:flutter/rendering.dart';
 import '../../models/video.dart';
 import 'package:keframe/keframe.dart';
+import '../../config/kids_topics.dart';
 import '../../services/auth_service.dart';
 import '../../services/bilibili_api.dart';
+import '../../services/kids_feed_service.dart';
+import '../../services/kids_mode_service.dart';
 import '../../services/settings_service.dart';
 import '../../widgets/tv_video_card.dart';
 import '../../widgets/time_display.dart';
@@ -34,6 +37,10 @@ class HomeTabState extends State<HomeTab> {
   late List<HomeCategory> _categories;
   late List<FocusNode> _categoryFocusNodes;
 
+  /// 儿童模式：当前启用的主题（替代原来的推荐/热门/分区）
+  List<KidsTopic> _kidsTopics = [];
+  bool _kidsMode = false;
+
   // 数据缓存
   final Map<int, List<Video>> _categoryVideos = {};
   final Map<int, bool> _categoryLoading = {};
@@ -48,8 +55,13 @@ class HomeTabState extends State<HomeTab> {
   @override
   void initState() {
     super.initState();
+    _kidsMode = KidsModeService.enabled;
+    _kidsTopics = KidsModeService.topics;
     _loadCategoryOrder();
-    _categoryFocusNodes = List.generate(_categories.length, (_) => FocusNode());
+    _categoryFocusNodes = List.generate(_maxSectionCount, (_) => FocusNode());
+
+    // 设置页里改了儿童模式/主题后立即重建首页
+    KidsModeService.revision.addListener(_onKidsModeChanged);
 
     // 【优化核心 1】如果有预加载数据，立即填充，且标记 loading 为 false
     if (widget.preloadedVideos != null && widget.preloadedVideos!.isNotEmpty) {
@@ -67,6 +79,51 @@ class HomeTabState extends State<HomeTab> {
       // 只有没数据时，才自己去请求
       _loadVideosForCategory(0);
     }
+  }
+
+  /// 首页当前的行数（儿童模式下是主题数，否则是分区数）
+  int get _sectionCount => _kidsMode ? _kidsTopics.length : _categories.length;
+
+  /// 分类标签最多需要的焦点节点数
+  ///
+  /// 一次性按最大值创建，切换儿童模式时不再重建，避免销毁仍在组件树上的
+  /// FocusNode（那会导致 "used after being disposed" 断言）。
+  int get _maxSectionCount {
+    final topicCount = kidsTopicCatalog.length;
+    final categoryCount = HomeCategory.values.length;
+    return topicCount > categoryCount ? topicCount : categoryCount;
+  }
+
+  /// 第 index 行的标题
+  String _sectionLabel(int index) {
+    if (_kidsMode) {
+      if (index < 0 || index >= _kidsTopics.length) return '';
+      return _kidsTopics[index].label;
+    }
+    return _categories[index].label;
+  }
+
+  /// 儿童模式开关/主题变化后重建首页
+  void _onKidsModeChanged() {
+    if (!mounted) return;
+
+    // 只重置数据，不重建焦点节点：焦点节点按索引复用，多出来的闲置即可
+    setState(() {
+      _kidsMode = KidsModeService.enabled;
+      _kidsTopics = KidsModeService.topics;
+      _selectedCategoryIndex = 0;
+      _categoryVideos.clear();
+      _categoryLoading.clear();
+      _categoryPage.clear();
+      _categoryRefreshIdx.clear();
+      _firstLoadDone = false;
+      _usedPreloadedData = false;
+    });
+
+    _loadVideosForCategory(0);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      widget.onFirstLoadComplete?.call();
+    });
   }
 
   // ... (省略 _loadCategoryOrder, dispose 等未改动代码) ...
@@ -88,6 +145,7 @@ class HomeTabState extends State<HomeTab> {
 
   @override
   void dispose() {
+    KidsModeService.revision.removeListener(_onKidsModeChanged);
     _scrollController.dispose();
     for (var node in _categoryFocusNodes) {
       node.dispose();
@@ -113,6 +171,8 @@ class HomeTabState extends State<HomeTab> {
     int categoryIndex, {
     bool refresh = false,
   }) async {
+    // 儿童模式下一个主题都没开，没有内容可加载
+    if (_sectionCount == 0) return;
     if (_categoryLoading[categoryIndex] == true) return;
 
     // ... (保持原有的分页逻辑) ...
@@ -131,28 +191,35 @@ class HomeTabState extends State<HomeTab> {
       setState(() => _categoryLoading[categoryIndex] = true);
     }
 
-    final category = _categories[categoryIndex];
     List<Video> videos;
 
     try {
-      // 网络请求逻辑...
-      switch (category) {
-        case HomeCategory.recommend:
-          final idx = refresh ? 0 : currentRefreshIdx;
-          videos = await BilibiliApi.getRecommendVideos(idx: idx);
-          _categoryRefreshIdx[categoryIndex] = idx + 1;
-          break;
-        case HomeCategory.popular:
-          final page = refresh ? 1 : currentPage;
-          videos = await BilibiliApi.getPopularVideos(page: page);
-          break;
-        default:
-          final page = refresh ? 1 : currentPage;
-          videos = await BilibiliApi.getRegionVideos(
-            tid: category.tid,
-            page: page,
-          );
-          break;
+      if (_kidsMode) {
+        // 儿童模式：只加载白名单主题内容，永远不调用推荐接口
+        final topic = _kidsTopics[categoryIndex];
+        final page = refresh ? 1 : currentPage;
+        videos = await KidsFeedService.loadTopicFeed(topic, page: page);
+      } else {
+        final category = _categories[categoryIndex];
+        // 网络请求逻辑...
+        switch (category) {
+          case HomeCategory.recommend:
+            final idx = refresh ? 0 : currentRefreshIdx;
+            videos = await BilibiliApi.getRecommendVideos(idx: idx);
+            _categoryRefreshIdx[categoryIndex] = idx + 1;
+            break;
+          case HomeCategory.popular:
+            final page = refresh ? 1 : currentPage;
+            videos = await BilibiliApi.getPopularVideos(page: page);
+            break;
+          default:
+            final page = refresh ? 1 : currentPage;
+            videos = await BilibiliApi.getRegionVideos(
+              tid: category.tid,
+              page: page,
+            );
+            break;
+        }
       }
     } catch (e) {
       videos = [];
@@ -162,8 +229,8 @@ class HomeTabState extends State<HomeTab> {
     setState(() {
       final page = _categoryPage[categoryIndex] ?? 1;
 
-      // 插件过滤
-      final filteredVideos = _filterVideos(videos);
+      // 插件过滤 + 儿童模式白名单二次兜底
+      final filteredVideos = KidsModeService.filter(_filterVideos(videos));
 
       if (refresh || page == 1) {
         _categoryVideos[categoryIndex] = filteredVideos;
@@ -216,9 +283,31 @@ class HomeTabState extends State<HomeTab> {
 
   @override
   Widget build(BuildContext context) {
-    // ... (Auth check logic 保持不变) ...
-    if (!AuthService.isLoggedIn) {
+    // 儿童模式下不要求登录（孩子不需要账号），普通模式维持原有登录校验
+    if (!_kidsMode && !AuthService.isLoggedIn) {
       return const Center(child: Text("请先登录")); // 简写，保持你原有的 UI
+    }
+
+    // 儿童模式但一个主题都没启用：给出明确指引，而不是空白页
+    if (_kidsMode && _kidsTopics.isEmpty) {
+      return const Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.child_care, size: 72, color: Colors.white24),
+            SizedBox(height: 16),
+            Text(
+              '儿童模式已开启，但还没有启用任何主题',
+              style: TextStyle(color: Colors.white70, fontSize: 18),
+            ),
+            SizedBox(height: 8),
+            Text(
+              '请到 设置 → 儿童模式 中打开“我的世界”“芭比娃娃”等主题',
+              style: TextStyle(color: Colors.white38, fontSize: 14),
+            ),
+          ],
+        ),
+      );
     }
 
     // 判断是否是"启动后的第一屏数据"
@@ -233,6 +322,32 @@ class HomeTabState extends State<HomeTab> {
           child: FocusTraversalGroup(
             child: _isLoading && _currentVideos.isEmpty
                 ? const Center(child: CircularProgressIndicator())
+                : (!_isLoading && _currentVideos.isEmpty && _kidsMode)
+                ? Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(
+                          Icons.search_off,
+                          size: 56,
+                          color: Colors.white24,
+                        ),
+                        const SizedBox(height: 12),
+                        Text(
+                          '“${_sectionLabel(_selectedCategoryIndex)}”暂时没有获取到内容',
+                          style: const TextStyle(
+                            color: Colors.white54,
+                            fontSize: 16,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        const Text(
+                          '按确定键重新加载，或换个主题',
+                          style: TextStyle(color: Colors.white24, fontSize: 13),
+                        ),
+                      ],
+                    ),
+                  )
                 : SizeCacheWidget(
                     child: CustomScrollView(
                       controller: _scrollController,
@@ -378,19 +493,57 @@ class HomeTabState extends State<HomeTab> {
               child: SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
                 child: Row(
-                  children: List.generate(_categories.length, (index) {
-                    return _CategoryTab(
-                      label: _categories[index].label,
-                      isSelected: _selectedCategoryIndex == index,
-                      focusNode: _categoryFocusNodes[index],
-                      onTap: () => _switchCategory(index),
-                      onFocus: () => _switchCategory(index),
-                      onConfirm: refreshCurrentCategory,
-                      onMoveLeft: index == 0
-                          ? () => widget.sidebarFocusNode?.requestFocus()
-                          : null,
-                    );
-                  }),
+                  children: [
+                    // 儿童模式标识：明确告诉家长当前只展示白名单内容
+                    if (_kidsMode) ...[
+                      Container(
+                        margin: const EdgeInsets.only(right: 20),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFfb7299).withValues(alpha: 0.2),
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(
+                            color: const Color(0xFFfb7299),
+                            width: 1,
+                          ),
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.child_care,
+                              size: 16,
+                              color: Color(0xFFfb7299),
+                            ),
+                            SizedBox(width: 4),
+                            Text(
+                              '儿童模式',
+                              style: TextStyle(
+                                color: Color(0xFFfb7299),
+                                fontSize: 14,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                    ...List.generate(_sectionCount, (index) {
+                      return _CategoryTab(
+                        label: _sectionLabel(index),
+                        isSelected: _selectedCategoryIndex == index,
+                        focusNode: _categoryFocusNodes[index],
+                        onTap: () => _switchCategory(index),
+                        onFocus: () => _switchCategory(index),
+                        onConfirm: refreshCurrentCategory,
+                        onMoveLeft: index == 0
+                            ? () => widget.sidebarFocusNode?.requestFocus()
+                            : null,
+                      );
+                    }),
+                  ],
                 ),
               ),
             ),

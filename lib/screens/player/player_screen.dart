@@ -315,7 +315,7 @@ class _PlayerScreenState extends State<PlayerScreen>
               // 更多视频面板
               if (showRelatedPanel)
                 RelatedPanel(
-                  bvid: widget.video.bvid,
+                  video: widget.video,
                   onVideoSelect: (video) {
                     Navigator.pushReplacement(
                       context,

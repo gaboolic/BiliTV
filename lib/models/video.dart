@@ -115,6 +115,8 @@ class Video {
       title: title,
       pic: _fixPicUrl(json['pic'] ?? ''),
       ownerName: json['author'] ?? '',
+      // 搜索接口在条目里带了 UP 主 mid，儿童模式的白名单过滤需要它
+      ownerMid: _toInt(json['mid']),
       view: _toInt(json['play']),
       danmaku: _toInt(json['danmaku']),
       duration: _parseDuration(json['duration'] ?? ''),

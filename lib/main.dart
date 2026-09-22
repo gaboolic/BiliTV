@@ -6,6 +6,7 @@ import 'package:bili_tv_app/plugins/sponsor_block_plugin.dart';
 import 'package:bili_tv_app/plugins/ad_filter_plugin.dart';
 import 'package:bili_tv_app/plugins/danmaku_enhance_plugin.dart';
 import 'services/auth_service.dart';
+import 'services/kids_mode_service.dart';
 import 'services/local_server.dart';
 
 Future<void> main() async {
@@ -21,6 +22,9 @@ Future<void> main() async {
   pluginManager.register(SponsorBlockPlugin());
   pluginManager.register(AdFilterPlugin());
   pluginManager.register(DanmakuEnhancePlugin());
+
+  // 儿童模式（内容白名单）设置，首页/搜索/播放器都依赖它
+  await KidsModeService.init();
 
   // 启动本地 HTTP 服务 (提供插件配置 API)
   await LocalServer.instance.start();

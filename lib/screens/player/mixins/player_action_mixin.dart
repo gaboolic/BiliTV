@@ -6,6 +6,8 @@ import 'package:fluttertoast/fluttertoast.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../models/video.dart' as models;
 import '../../../services/bilibili_api.dart';
+import '../../../services/kids_feed_service.dart';
+import '../../../services/kids_mode_service.dart';
 import '../../../services/settings_service.dart';
 import '../../../services/auth_service.dart';
 import '../../../services/mpd_generator.dart';
@@ -120,7 +122,8 @@ mixin PlayerActionMixin on PlayerStateMixin {
       }
 
       // 异步加载相关视频 (用于自动连播)
-      BilibiliApi.getRelatedVideos(widget.video.bvid).then((videos) {
+      // 儿童模式下由 KidsFeedService 做白名单过滤，不会连播到无关内容
+      KidsFeedService.relatedFor(widget.video).then((videos) {
         if (mounted) {
           relatedVideos = videos
               .map(
@@ -130,6 +133,7 @@ mixin PlayerActionMixin on PlayerStateMixin {
                   'pic': v.pic,
                   'duration': v.duration,
                   'pubdate': v.pubdate,
+                  'mid': v.ownerMid,
                   'owner': {'name': v.ownerName, 'face': v.ownerFace},
                   'stat': {'view': v.view},
                 },
@@ -620,7 +624,7 @@ mixin PlayerActionMixin on PlayerStateMixin {
     if (relatedVideos.isNotEmpty) {
       final nextVideo = relatedVideos.first;
       Fluttertoast.showToast(
-        msg: '自动播放推荐视频',
+        msg: KidsModeService.enabled ? '自动播放同主题视频' : '自动播放推荐视频',
         toastLength: Toast.LENGTH_SHORT,
         gravity: ToastGravity.TOP,
       );
@@ -634,6 +638,7 @@ mixin PlayerActionMixin on PlayerStateMixin {
               pic: nextVideo['pic'] ?? '',
               ownerName: nextVideo['owner']?['name'] ?? '',
               ownerFace: nextVideo['owner']?['face'] ?? '',
+              ownerMid: nextVideo['mid'] ?? 0,
               duration: nextVideo['duration'] ?? 0,
               pubdate: nextVideo['pubdate'] ?? 0,
               view: nextVideo['stat']?['view'] ?? 0,

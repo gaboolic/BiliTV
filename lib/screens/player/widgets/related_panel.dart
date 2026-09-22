@@ -1,17 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import '../../../services/bilibili_api.dart';
 import '../../../models/video.dart';
+import '../../../services/kids_feed_service.dart';
+import '../../../services/kids_mode_service.dart';
 
 /// Related Videos Panel
 class RelatedPanel extends StatefulWidget {
-  final String bvid;
+  /// 当前播放的视频（需要 ownerMid / title 来做儿童模式过滤）
+  final Video video;
   final Function(Video) onVideoSelect;
   final VoidCallback onClose;
 
   const RelatedPanel({
     super.key,
-    required this.bvid,
+    required this.video,
     required this.onVideoSelect,
     required this.onClose,
   });
@@ -46,7 +48,7 @@ class _RelatedPanelState extends State<RelatedPanel> {
 
   Future<void> _loadVideos() async {
     setState(() => _isLoading = true);
-    final videos = await BilibiliApi.getRelatedVideos(widget.bvid);
+    final videos = await KidsFeedService.relatedFor(widget.video);
     if (mounted) {
       setState(() {
         _videos = videos;
@@ -115,13 +117,17 @@ class _RelatedPanelState extends State<RelatedPanel> {
               // 头部
               Container(
                 padding: const EdgeInsets.all(16),
-                child: const Row(
+                child: Row(
                   children: [
-                    Icon(Icons.expand_more, color: Colors.white, size: 24),
-                    SizedBox(width: 8),
+                    const Icon(
+                      Icons.expand_more,
+                      color: Colors.white,
+                      size: 24,
+                    ),
+                    const SizedBox(width: 8),
                     Text(
-                      '更多视频',
-                      style: TextStyle(
+                      KidsModeService.enabled ? '同主题视频' : '更多视频',
+                      style: const TextStyle(
                         color: Colors.white,
                         fontSize: 18,
                         fontWeight: FontWeight.bold,
@@ -136,10 +142,10 @@ class _RelatedPanelState extends State<RelatedPanel> {
                 child: _isLoading
                     ? const Center(child: CircularProgressIndicator())
                     : _videos.isEmpty
-                    ? const Center(
+                    ? Center(
                         child: Text(
-                          '暂无相关视频',
-                          style: TextStyle(color: Colors.grey),
+                          KidsModeService.enabled ? '暂无同主题视频' : '暂无相关视频',
+                          style: const TextStyle(color: Colors.grey),
                         ),
                       )
                     : ListView.builder(

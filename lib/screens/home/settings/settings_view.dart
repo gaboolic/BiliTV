@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import '../../../services/auth_service.dart';
 import 'tabs/playback_settings.dart';
 import 'tabs/interface_settings.dart';
+import 'tabs/kids_settings.dart';
 import 'tabs/plugins_settings.dart';
 import 'tabs/storage_settings.dart';
 import 'tabs/about_settings.dart';
@@ -13,6 +14,7 @@ import '../../../widgets/vip_avatar_badge.dart';
 enum SettingsCategory {
   playback('播放设置'),
   interface_('界面设置'),
+  kids('儿童模式'),
   plugins('插件中心'),
   storage('其他设置'),
   about('关于软件');
@@ -350,6 +352,11 @@ class SettingsViewState extends State<SettingsView> {
         );
       case SettingsCategory.interface_:
         return InterfaceSettings(
+          onMoveUp: moveToCurrentTab,
+          sidebarFocusNode: widget.sidebarFocusNode,
+        );
+      case SettingsCategory.kids:
+        return KidsSettings(
           onMoveUp: moveToCurrentTab,
           sidebarFocusNode: widget.sidebarFocusNode,
         );

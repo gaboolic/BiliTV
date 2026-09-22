@@ -7,6 +7,8 @@ import '../services/auth_service.dart';
 import '../services/settings_service.dart'; // 包含 BiliCacheManager
 import '../services/update_service.dart';
 import '../services/bilibili_api.dart';
+import '../services/kids_feed_service.dart';
+import '../services/kids_mode_service.dart';
 import '../models/video.dart';
 import 'home_screen.dart';
 import '../utils/image_url_utils.dart';
@@ -74,6 +76,7 @@ class _SplashScreenState extends State<SplashScreen> {
       videoInitFuture,
       AuthService.init(),
       SettingsService.init(),
+      KidsModeService.init(),
       UpdateService.init(),
     ]);
 
@@ -117,7 +120,8 @@ class _SplashScreenState extends State<SplashScreen> {
     // 4. 异步预加载数据 (不 await，让它并行跑)
     final preloadFuture = Future(() async {
       try {
-        final videos = await BilibiliApi.getRecommendVideos(idx: 0);
+        // 儿童模式预加载第一个主题，否则走原来的推荐流
+        final videos = await KidsFeedService.preloadHomeFeed();
         preloadedVideos = videos;
 
         if (mounted && preloadedVideos.isNotEmpty) {

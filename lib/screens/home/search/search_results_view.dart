@@ -4,7 +4,8 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:keframe/keframe.dart';
 import '../../../models/video.dart';
-import '../../../services/bilibili_api.dart';
+import '../../../services/kids_feed_service.dart';
+import '../../../services/kids_mode_service.dart';
 import '../../../widgets/tv_video_card.dart';
 import '../../player/player_screen.dart';
 
@@ -105,25 +106,29 @@ class _SearchResultsViewState extends State<SearchResultsView> {
       });
     }
 
-    final results = await BilibiliApi.searchVideos(
+    final page = await KidsFeedService.searchFiltered(
       widget.query,
-      page: _currentPage,
+      startPage: _currentPage,
       order: _currentOrder,
     );
 
     if (!mounted) return;
     setState(() {
       if (reset) {
-        _searchResults = results;
+        _searchResults = page.videos;
       } else {
-        _searchResults.addAll(results);
+        _searchResults.addAll(page.videos);
       }
+
+      // 过滤后可能连翻了几页，记录真实请求到的页码
+      _currentPage = page.lastPage;
 
       _isLoading = false;
       _isLoadingMore = false;
       _isRefreshing = false; // 刷新完成
 
-      if (results.length < 20) {
+      // 原始结果没有满页，说明后面没有更多了
+      if (!page.rawFull) {
         _hasMore = false;
       }
 
@@ -186,9 +191,16 @@ class _SearchResultsViewState extends State<SearchResultsView> {
               style: TextStyle(color: Colors.white38, fontSize: 16),
             ),
             const SizedBox(height: 10),
-            const Text(
-              '按返回键重新搜索',
-              style: TextStyle(color: Colors.white24, fontSize: 14),
+            Text(
+              KidsModeService.enabled
+                  ? '儿童模式只显示已开启主题的内容\n可在 设置 → 儿童模式 中开启更多主题'
+                  : '按返回键重新搜索',
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: Colors.white24,
+                fontSize: 14,
+                height: 1.5,
+              ),
             ),
           ],
         ),

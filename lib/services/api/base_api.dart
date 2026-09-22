@@ -14,6 +14,13 @@ class BaseApi {
   static DateTime? wbiKeysTime;
   static bool _wbiLoaded = false;
 
+  // 匿名设备指纹 (buvid3/buvid4)
+  // 哔哩哔哩的风控接口（搜索、播放地址等）即使不登录也会要求带上它，
+  // 否则容易返回 -412。这里在本地生成/缓存一份，随请求 Cookie 一起发送。
+  static String? buvid3;
+  static String? buvid4;
+  static bool _buvidLoaded = false;
+
   /// 获取通用请求头
   static Map<String, String> getHeaders({bool withCookie = false}) {
     final headers = {
@@ -23,18 +30,74 @@ class BaseApi {
     };
 
     if (withCookie) {
+      final cookies = <String>[];
+
+      if (buvid3 != null && buvid3!.isNotEmpty) {
+        cookies.add('buvid3=$buvid3');
+      }
+      if (buvid4 != null && buvid4!.isNotEmpty) {
+        cookies.add('buvid4=$buvid4');
+      }
+
       final sessdata = AuthService.sessdata;
       final biliJct = AuthService.biliJct;
       if (sessdata != null && sessdata.isNotEmpty) {
-        var cookie = 'SESSDATA=$sessdata';
+        cookies.add('SESSDATA=$sessdata');
         if (biliJct != null && biliJct.isNotEmpty) {
-          cookie += '; bili_jct=$biliJct';
+          cookies.add('bili_jct=$biliJct');
         }
-        headers['Cookie'] = cookie;
+      }
+
+      if (cookies.isNotEmpty) {
+        headers['Cookie'] = cookies.join('; ');
       }
     }
 
     return headers;
+  }
+
+  /// 加载本地缓存的 buvid
+  static Future<void> _loadBuvidFromStorage() async {
+    if (_buvidLoaded) return;
+    _buvidLoaded = true;
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      buvid3 = prefs.getString('buvid3');
+      buvid4 = prefs.getString('buvid4');
+    } catch (e) {
+      // 忽略加载错误
+    }
+  }
+
+  /// 确保存在 buvid3/buvid4（匿名可用，不依赖登录）
+  static Future<void> ensureBuvid() async {
+    await _loadBuvidFromStorage();
+    if (buvid3 != null && buvid3!.isNotEmpty) return;
+
+    try {
+      final response = await http.get(
+        Uri.parse('$apiBase/x/frontend/finger/spi'),
+        headers: getHeaders(),
+      );
+
+      if (response.statusCode == 200) {
+        final json = jsonDecode(response.body);
+        final data = json['data'] as Map<String, dynamic>?;
+        if (data != null) {
+          buvid3 = data['b_3'] as String?;
+          buvid4 = data['b_4'] as String?;
+
+          if (buvid3 != null && buvid3!.isNotEmpty) {
+            final prefs = await SharedPreferences.getInstance();
+            prefs.setString('buvid3', buvid3!);
+            if (buvid4 != null) prefs.setString('buvid4', buvid4!);
+          }
+        }
+      }
+    } catch (e) {
+      // 拿不到就算了，请求会退回无 Cookie 状态
+    }
   }
 
   /// 从本地存储加载 WBI keys
@@ -74,6 +137,8 @@ class BaseApi {
   static Future<void> ensureWbiKeys() async {
     // 首次启动时从本地加载
     await _loadWbiFromStorage();
+    // 先保证有匿名设备指纹，否则搜索接口容易被风控拦截 (-412)
+    await ensureBuvid();
 
     // 缓存2小时
     if (imgKey != null && subKey != null && wbiKeysTime != null) {
@@ -90,8 +155,12 @@ class BaseApi {
 
       if (response.statusCode == 200) {
         final json = jsonDecode(response.body);
-        if (json['code'] == 0 && json['data'] != null) {
-          final wbiImg = json['data']['wbi_img'];
+        // 注意：未登录时 nav 返回 code=-101，但 data.wbi_img 依然存在。
+        // 这里不能判断 code == 0，否则匿名用户永远拿不到 WBI key，
+        // 搜索/播放地址就会退化成未签名请求被风控拦截（返回空或 -412）。
+        final data = json['data'] as Map<String, dynamic>?;
+        if (data != null) {
+          final wbiImg = data['wbi_img'];
           if (wbiImg != null) {
             final imgUrl = wbiImg['img_url'] as String? ?? '';
             final subUrl = wbiImg['sub_url'] as String? ?? '';
