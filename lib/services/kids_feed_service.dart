@@ -78,10 +78,18 @@ class KidsFeedService {
     final seen = <String>{current.bvid};
     final result = <Video>[];
 
+    // 当前视频属于哪个主题；用它的排除词继续约束后续推荐，
+    // 避免看「盖房子」时从信任 UP 主那里冒出游戏/漫剧
+    final currentTopic = KidsModeService.topicOf(current);
+
     void addAll(Iterable<Video> videos) {
       for (final video in videos) {
         if (video.bvid.isEmpty || seen.contains(video.bvid)) continue;
         if (!KidsModeService.isAllowed(video)) continue;
+        if (currentTopic != null &&
+            KidsModeService.matchesExclude(video, currentTopic)) {
+          continue;
+        }
         seen.add(video.bvid);
         result.add(video);
       }
@@ -98,13 +106,10 @@ class KidsFeedService {
     }
 
     // 3. 同主题搜索兜底
-    if (result.length < 8) {
-      final topic = KidsModeService.topicOf(current);
-      if (topic != null) {
-        for (final query in topic.queries.take(2)) {
-          if (result.length >= limit) break;
-          addAll(await BilibiliApi.searchVideos(query, page: 1));
-        }
+    if (result.length < 8 && currentTopic != null) {
+      for (final query in currentTopic.queries.take(2)) {
+        if (result.length >= limit) break;
+        addAll(await BilibiliApi.searchVideos(query, page: 1));
       }
     }
 

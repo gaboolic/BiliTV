@@ -224,6 +224,7 @@ class LocalServer {
                 'enabled': KidsModeService.isTopicEnabled(t.id),
                 'queries': t.queries,
                 'matchKeywords': t.matchKeywords,
+                'excludeKeywords': t.excludeKeywords,
               },
             )
             .toList(),
@@ -234,9 +235,11 @@ class LocalServer {
                 'label': t.label,
                 'queries': t.queries,
                 'matchKeywords': t.matchKeywords,
+                'excludeKeywords': t.excludeKeywords,
               },
             )
             .toList(),
+        'globalBlockKeywords': kidsGlobalBlockKeywords,
       });
       return;
     }
@@ -625,6 +628,7 @@ class LocalServer {
   }
   .chip.on { background: rgba(251,114,153,0.22); border-color: #fb7299; }
   .chip small { color: rgba(255,255,255,0.35); font-size: 11px; word-break: break-all; }
+  .chip small.ex { color: rgba(255,170,120,0.6); }
   .chip .top { display: flex; align-items: center; gap: 8px; }
   .chip input { width: 18px; height: 18px; accent-color: #fb7299; flex: none; }
   input[type="text"] {
@@ -689,7 +693,8 @@ class LocalServer {
     </div>
     <p class="hint">
       主题名会同时作为搜索词和标题匹配词：搜索结果标题里出现这个词才会显示。<br>
-      想覆盖得更全，可以填额外搜索词，例如「熊出没, 熊出没之探险日记」。
+      想覆盖得更全，可以填额外搜索词，例如「熊出没, 熊出没之探险日记」。<br>
+      标题里带「漫剧 / 短剧 / 免费观看」这类投流广告词的内容已全局屏蔽，自定义主题同样生效。
     </p>
   </div>
 
@@ -741,10 +746,13 @@ function load() {
 
     var box = $('presets');
     box.innerHTML = state.presets.map(function (p) {
+      var ex = p.excludeKeywords || [];
       return '<label class="chip' + (p.enabled ? ' on' : '') + '">' +
         '<span class="top"><input type="checkbox" class="preset" value="' + esc(p.id) + '"' +
         (p.enabled ? ' checked' : '') + '><span>' + esc(p.label) + '</span></span>' +
-        '<small>' + esc((p.queries || []).join(' / ')) + '</small></label>';
+        '<small>' + esc((p.queries || []).join(' / ')) + '</small>' +
+        (ex.length ? '<small class="ex">已屏蔽 ' + ex.length + ' 个词</small>' : '') +
+        '</label>';
     }).join('');
 
     Array.prototype.forEach.call(box.querySelectorAll('input.preset'), function (cb) {

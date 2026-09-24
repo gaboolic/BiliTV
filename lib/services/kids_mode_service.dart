@@ -144,12 +144,14 @@ class KidsModeService {
   /// 添加自定义主题
   ///
   /// [label] 主题名（同时作为默认搜索词和标题匹配词），
-  /// [extraQueries] / [extraKeywords] 可选，用于补充搜索词或匹配词。
+  /// [extraQueries] / [extraKeywords] 可选，用于补充搜索词或匹配词，
+  /// [extraExcludes] 可选，标题命中这些词的视频不显示。
   /// 同名主题会直接覆盖，避免重复添加。
   static Future<KidsTopic> addCustomTopic({
     required String label,
     List<String> extraQueries = const [],
     List<String> extraKeywords = const [],
+    List<String> extraExcludes = const [],
   }) async {
     await init();
 
@@ -158,12 +160,15 @@ class KidsModeService {
       ..removeWhere((e) => e.isEmpty);
     final keywords = <String>{name, ...extraKeywords.map((e) => e.trim())}
       ..removeWhere((e) => e.isEmpty);
+    final excludes = <String>{...extraExcludes.map((e) => e.trim())}
+      ..removeWhere((e) => e.isEmpty);
 
     final topic = KidsTopic(
       id: 'custom_${DateTime.now().millisecondsSinceEpoch}',
       label: name,
       queries: queries.toList(),
       matchKeywords: keywords.toList(),
+      excludeKeywords: excludes.toList(),
     );
 
     final list = List<KidsTopic>.from(customTopics)
@@ -226,8 +231,33 @@ class KidsModeService {
 
   // ==================== 过滤 ====================
 
+  /// 标题是否命中全局硬屏蔽词（投流漫剧/广告）
+  static bool isGloballyBlocked(Video video) {
+    final title = video.title.toLowerCase();
+    for (final keyword in kidsGlobalBlockKeywords) {
+      if (keyword.isEmpty) continue;
+      if (title.contains(keyword.toLowerCase())) return true;
+    }
+    return false;
+  }
+
+  /// 标题是否命中该主题的排除词（含全局屏蔽词）
+  static bool matchesExclude(Video video, KidsTopic topic) {
+    if (isGloballyBlocked(video)) return true;
+    final title = video.title.toLowerCase();
+    for (final keyword in topic.excludeKeywords) {
+      if (keyword.isEmpty) continue;
+      if (title.contains(keyword.toLowerCase())) return true;
+    }
+    return false;
+  }
+
   /// 视频标题是否命中指定主题
+  ///
+  /// 命中排除词的直接否决，避免“标题里确实有这个词但内容是漫剧/游戏/广告”。
   static bool matchesTopic(Video video, KidsTopic topic) {
+    if (matchesExclude(video, topic)) return false;
+
     final title = video.title.toLowerCase();
     for (final keyword in topic.matchKeywords) {
       if (keyword.isEmpty) continue;
@@ -248,8 +278,10 @@ class KidsModeService {
   ///
   /// 儿童模式关闭时一律放行；开启时必须是命中主题关键词，
   /// 或者作者在信任 UP 主名单中。
+  /// 全局硬屏蔽词优先于信任名单：投流漫剧/广告即使来自信任的 UP 主也挡掉。
   static bool isAllowed(Video video) {
     if (!enabled) return true;
+    if (isGloballyBlocked(video)) return false;
     if (isTrustedUp(video.ownerMid)) return true;
     return topicOf(video) != null;
   }
