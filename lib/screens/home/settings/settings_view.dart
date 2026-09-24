@@ -4,6 +4,7 @@ import '../../../services/auth_service.dart';
 import 'tabs/playback_settings.dart';
 import 'tabs/interface_settings.dart';
 import 'tabs/kids_settings.dart';
+import 'tabs/account_settings.dart';
 import 'tabs/plugins_settings.dart';
 import 'tabs/storage_settings.dart';
 import 'tabs/about_settings.dart';
@@ -12,6 +13,7 @@ import '../../../widgets/vip_avatar_badge.dart';
 
 /// 设置分类枚举
 enum SettingsCategory {
+  account('账号'),
   playback('播放设置'),
   interface_('界面设置'),
   kids('儿童模式'),
@@ -177,7 +179,10 @@ class SettingsViewState extends State<SettingsView> {
           }
           // 向上导航跳转到退出按钮
           if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
-            _logoutFocusNode.requestFocus();
+            // 未登录时没有退出按钮，但仍然吃掉向上按键，避免焦点跑出设置页
+            if (AuthService.isLoggedIn) {
+              _logoutFocusNode.requestFocus();
+            }
             return KeyEventResult.handled;
           }
           return KeyEventResult.ignored;
@@ -273,7 +278,9 @@ class SettingsViewState extends State<SettingsView> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        AuthService.uname ?? '已登录',
+                        AuthService.isLoggedIn
+                            ? (AuthService.uname ?? '已登录')
+                            : '未登录',
                         style: TextStyle(
                           color: AuthService.isVip
                               ? const Color(0xFFfb7299) // VIP 粉色
@@ -283,7 +290,9 @@ class SettingsViewState extends State<SettingsView> {
                         ),
                       ),
                       Text(
-                        'UID: ${AuthService.mid ?? ""}',
+                        AuthService.isLoggedIn
+                            ? 'UID: ${AuthService.mid ?? ""}'
+                            : '儿童模式无需登录，可在「账号」里扫码登录',
                         style: const TextStyle(
                           color: Colors.white54,
                           fontSize: 12,
@@ -292,13 +301,14 @@ class SettingsViewState extends State<SettingsView> {
                     ],
                   ),
                   const SizedBox(width: 30),
-                  // 退出登录按钮
-                  _buildActionButton(
-                    label: '退出登录',
-                    color: Colors.red,
-                    onTap: _handleLogout,
-                    focusNode: _logoutFocusNode,
-                  ),
+                  // 退出登录按钮（未登录时没有可退出的账号）
+                  if (AuthService.isLoggedIn)
+                    _buildActionButton(
+                      label: '退出登录',
+                      color: Colors.red,
+                      onTap: _handleLogout,
+                      focusNode: _logoutFocusNode,
+                    ),
                 ],
               ),
             ),
@@ -345,6 +355,13 @@ class SettingsViewState extends State<SettingsView> {
 
   Widget _buildContent(VoidCallback moveToCurrentTab) {
     switch (SettingsCategory.values[_selectedCategoryIndex]) {
+      case SettingsCategory.account:
+        return AccountSettings(
+          onMoveUp: moveToCurrentTab,
+          sidebarFocusNode: widget.sidebarFocusNode,
+          onLogout: widget.onLogout,
+          onChanged: () => setState(() {}),
+        );
       case SettingsCategory.playback:
         return PlaybackSettings(
           onMoveUp: moveToCurrentTab,

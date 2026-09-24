@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -20,6 +22,7 @@ class KidsModeService {
   static const String _topicsKey = 'kids_mode_topic_ids';
   static const String _trustedUpsKey = 'kids_mode_trusted_ups';
   static const String _autoLearnKey = 'kids_mode_auto_learn';
+  static const String _customTopicsKey = 'kids_mode_custom_topics';
 
   static SharedPreferences? _prefs;
   static bool _loaded = false;
@@ -39,6 +42,8 @@ class KidsModeService {
   static Future<void> init() async {
     if (_loaded) return;
     _prefs = await SharedPreferences.getInstance();
+    // 清掉可能在 init 之前读到的空缓存，让自定义主题按真实 prefs 重新解析
+    _customCache = null;
     _loaded = true;
     _notify();
   }
@@ -71,10 +76,15 @@ class KidsModeService {
 
   static bool isTopicEnabled(String id) => _enabledTopicIds.contains(id);
 
-  /// 当前启用的主题（按内置目录顺序）
+  /// 当前启用的主题 = 开启的内置主题 + 全部自定义主题
+  ///
+  /// 自定义主题是用户显式添加的，始终生效，想停用就直接删除。
   static List<KidsTopic> get topics {
     final ids = _enabledTopicIds;
-    return kidsTopicCatalog.where((t) => ids.contains(t.id)).toList();
+    return [
+      ...kidsTopicCatalog.where((t) => ids.contains(t.id)),
+      ...customTopics,
+    ];
   }
 
   static Future<void> setTopicEnabled(String id, bool value) async {
@@ -88,6 +98,93 @@ class KidsModeService {
     await _prefs!.setStringList(_topicsKey, current.toList());
     _notify();
   }
+
+  /// 一次性设置所有内置主题的启用状态（网页配置用，只通知一次避免首页反复重建）
+  static Future<void> setPresetTopics(Set<String> enabledIds) async {
+    await init();
+    await _prefs!.setStringList(_topicsKey, enabledIds.toList());
+    _notify();
+  }
+
+  // ==================== 自定义主题 ====================
+
+  static List<KidsTopic>? _customCache;
+
+  /// 用户自己添加的主题
+  static List<KidsTopic> get customTopics {
+    if (_customCache != null) return _customCache!;
+
+    final raw = _prefs?.getStringList(_customTopicsKey) ?? const <String>[];
+    final result = <KidsTopic>[];
+    for (final item in raw) {
+      try {
+        final json = jsonDecode(item);
+        if (json is Map<String, dynamic>) {
+          final topic = KidsTopic.fromJson(json);
+          if (topic.id.isNotEmpty && topic.label.isNotEmpty) result.add(topic);
+        }
+      } catch (e) {
+        // 单条损坏就跳过，不影响其它主题
+      }
+    }
+    _customCache = result;
+    return result;
+  }
+
+  static Future<void> _saveCustomTopics(List<KidsTopic> list) async {
+    await init();
+    _customCache = list;
+    await _prefs!.setStringList(
+      _customTopicsKey,
+      list.map((t) => jsonEncode(t.toJson())).toList(),
+    );
+    _notify();
+  }
+
+  /// 添加自定义主题
+  ///
+  /// [label] 主题名（同时作为默认搜索词和标题匹配词），
+  /// [extraQueries] / [extraKeywords] 可选，用于补充搜索词或匹配词。
+  /// 同名主题会直接覆盖，避免重复添加。
+  static Future<KidsTopic> addCustomTopic({
+    required String label,
+    List<String> extraQueries = const [],
+    List<String> extraKeywords = const [],
+  }) async {
+    await init();
+
+    final name = label.trim();
+    final queries = <String>{name, ...extraQueries.map((e) => e.trim())}
+      ..removeWhere((e) => e.isEmpty);
+    final keywords = <String>{name, ...extraKeywords.map((e) => e.trim())}
+      ..removeWhere((e) => e.isEmpty);
+
+    final topic = KidsTopic(
+      id: 'custom_${DateTime.now().millisecondsSinceEpoch}',
+      label: name,
+      queries: queries.toList(),
+      matchKeywords: keywords.toList(),
+    );
+
+    final list = List<KidsTopic>.from(customTopics)
+      ..removeWhere((t) => t.label == name)
+      ..add(topic);
+
+    await _saveCustomTopics(list);
+    return topic;
+  }
+
+  /// 删除自定义主题
+  static Future<void> removeCustomTopic(String id) async {
+    await init();
+    final list = List<KidsTopic>.from(customTopics)
+      ..removeWhere((t) => t.id == id);
+    await _saveCustomTopics(list);
+  }
+
+  /// 整体替换自定义主题（网页配置用）
+  static Future<void> setCustomTopics(List<KidsTopic> list) =>
+      _saveCustomTopics(list);
 
   // ==================== UP 主白名单 ====================
 

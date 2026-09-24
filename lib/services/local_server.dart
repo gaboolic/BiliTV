@@ -2,9 +2,11 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
+import '../config/kids_topics.dart';
 import '../plugins/ad_filter_plugin.dart';
 import '../plugins/danmaku_enhance_plugin.dart';
 import '../core/plugin/plugin_manager.dart';
+import 'kids_mode_service.dart';
 
 /// 全局 HTTP 服务
 ///
@@ -139,6 +141,10 @@ class LocalServer {
       else if (path == '/' || path == '/index.html') {
         await _serveWebUI(request);
       }
+      // 儿童模式配置页（手机/电脑浏览器访问，避免用遥控器输中文）
+      else if (path == '/kids' || path == '/kids.html') {
+        await _serveKidsWebUI(request);
+      }
       // 404
       else {
         request.response.statusCode = 404;
@@ -176,6 +182,10 @@ class LocalServer {
     if (path.startsWith('/api/ad-filter/')) {
       await _handleAdFilterApi(request, path, method);
     }
+    // 儿童模式 API（主题白名单）
+    else if (path.startsWith('/api/kids/')) {
+      await _handleKidsApi(request, path, method);
+    }
     // 弹幕增强插件 API
     else if (path.startsWith('/api/danmaku/')) {
       await _handleDanmakuApi(request, path, method);
@@ -183,6 +193,123 @@ class LocalServer {
       request.response.statusCode = 404;
       request.response.write('API not found');
     }
+  }
+
+  /// 儿童模式 API
+  ///
+  /// GET  /api/kids/config  读取当前配置（开关、内置主题、自定义主题、信任UP主数量）
+  /// POST /api/kids/config  修改配置，body 里给出要改的字段即可
+  Future<void> _handleKidsApi(
+    HttpRequest request,
+    String path,
+    String method,
+  ) async {
+    if (path != '/api/kids/config') {
+      _jsonResponse(request, {'error': 'API not found'}, 404);
+      return;
+    }
+
+    await KidsModeService.init();
+
+    if (method == 'GET') {
+      _jsonResponse(request, {
+        'enabled': KidsModeService.enabled,
+        'autoLearnUps': KidsModeService.autoLearnUps,
+        'trustedUpCount': KidsModeService.trustedUpMids.length,
+        'presets': kidsTopicCatalog
+            .map(
+              (t) => {
+                'id': t.id,
+                'label': t.label,
+                'enabled': KidsModeService.isTopicEnabled(t.id),
+                'queries': t.queries,
+                'matchKeywords': t.matchKeywords,
+              },
+            )
+            .toList(),
+        'custom': KidsModeService.customTopics
+            .map(
+              (t) => {
+                'id': t.id,
+                'label': t.label,
+                'queries': t.queries,
+                'matchKeywords': t.matchKeywords,
+              },
+            )
+            .toList(),
+      });
+      return;
+    }
+
+    if (method != 'POST') {
+      _jsonResponse(request, {'error': 'Method not allowed'}, 405);
+      return;
+    }
+
+    final body = await _readJsonBody(request);
+    if (body == null) {
+      _jsonResponse(request, {'error': 'Invalid body'}, 400);
+      return;
+    }
+
+    if (body['enabled'] is bool) {
+      await KidsModeService.setEnabled(body['enabled'] as bool);
+    }
+    if (body['autoLearnUps'] is bool) {
+      await KidsModeService.setAutoLearnUps(body['autoLearnUps'] as bool);
+    }
+    if (body['clearTrustedUps'] == true) {
+      await KidsModeService.clearTrustedUps();
+    }
+
+    // 内置主题：请求里给的是“最终要启用的集合”
+    final enabledIds = body['presetEnabledIds'];
+    if (enabledIds is List) {
+      await KidsModeService.setPresetTopics(
+        enabledIds.map((e) => e.toString()).toSet(),
+      );
+    }
+
+    final removeId = body['removeCustomId'];
+    if (removeId is String && removeId.isNotEmpty) {
+      await KidsModeService.removeCustomTopic(removeId);
+    }
+
+    final add = body['addCustom'];
+    if (add is Map) {
+      final label = add['label']?.toString().trim() ?? '';
+      if (label.isEmpty) {
+        _jsonResponse(request, {'error': '主题名不能为空'}, 400);
+        return;
+      }
+      await KidsModeService.addCustomTopic(
+        label: label,
+        extraQueries: _splitKeywords(add['queries']),
+        extraKeywords: _splitKeywords(add['matchKeywords']),
+      );
+    }
+
+    _jsonResponse(request, {'success': true});
+  }
+
+  /// 把请求里的关键词字段统一整理成字符串列表
+  ///
+  /// 既接受 JSON 数组，也接受「逗号/顿号/空格分隔」的字符串。
+  List<String> _splitKeywords(dynamic value) {
+    if (value is List) {
+      return value
+          .map((e) => e.toString().trim())
+          .where((e) => e.isNotEmpty)
+          .toList();
+    }
+    if (value is String) {
+      return value
+          .split(RegExp(r'[,，、\s]+'))
+          .map((e) => e.trim())
+          .where((e) => e.isNotEmpty)
+          .toList();
+    }
+    return const [];
   }
 
   /// 去广告插件 API
@@ -452,6 +579,259 @@ class LocalServer {
     request.response.headers.contentType = ContentType.json;
     request.response.write(jsonEncode(data));
   }
+
+  /// 提供儿童模式配置页
+  Future<void> _serveKidsWebUI(HttpRequest request) async {
+    request.response.headers.contentType = ContentType.html;
+    request.response.write(_kidsWebUIHtml);
+  }
+
+  /// 儿童模式配置页 HTML（手机/电脑浏览器打开，勾选主题、添加自定义主题）
+  ///
+  /// 用 raw string，避免 HTML/JS 里的 \$ 被 Dart 当成插值。
+  static const String _kidsWebUIHtml = r'''
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BiliTV 儿童模式</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+    color: #fff; min-height: 100vh; padding: 16px;
+  }
+  .container { max-width: 720px; margin: 0 auto; padding-bottom: 40px; }
+  h1 { text-align: center; color: #fb7299; font-size: 24px; margin: 12px 0 6px; }
+  .sub { text-align: center; color: rgba(255,255,255,0.45); font-size: 13px; margin-bottom: 20px; }
+  .card {
+    background: rgba(255,255,255,0.05); border-radius: 16px; padding: 18px;
+    margin-bottom: 16px; border: 1px solid rgba(255,255,255,0.1);
+  }
+  .card h2 { color: #fb7299; font-size: 17px; margin-bottom: 14px; }
+  .row {
+    display: flex; align-items: center; gap: 12px;
+    padding: 12px 4px; font-size: 15px; cursor: pointer;
+  }
+  .row input[type="checkbox"] { width: 22px; height: 22px; accent-color: #fb7299; flex: none; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+  .chip {
+    display: flex; flex-direction: column; gap: 2px;
+    padding: 10px 12px; border-radius: 10px;
+    background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.08);
+    cursor: pointer; font-size: 14px;
+  }
+  .chip.on { background: rgba(251,114,153,0.22); border-color: #fb7299; }
+  .chip small { color: rgba(255,255,255,0.35); font-size: 11px; word-break: break-all; }
+  .chip .top { display: flex; align-items: center; gap: 8px; }
+  .chip input { width: 18px; height: 18px; accent-color: #fb7299; flex: none; }
+  input[type="text"] {
+    width: 100%; padding: 12px 14px; border-radius: 10px; font-size: 16px;
+    border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.1);
+    color: #fff; outline: none;
+  }
+  input[type="text"]:focus { border-color: #fb7299; }
+  input[type="text"]::placeholder { color: rgba(255,255,255,0.35); }
+  .input-row { display: flex; gap: 10px; margin-bottom: 10px; }
+  button {
+    padding: 12px 20px; border: none; border-radius: 10px; background: #fb7299;
+    color: #fff; font-size: 15px; cursor: pointer; white-space: nowrap;
+  }
+  button:active { transform: scale(0.98); }
+  button.ghost { background: rgba(255,255,255,0.12); }
+  button.danger { background: rgba(255,80,80,0.85); }
+  .tags { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+  .tag {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 8px 10px 8px 14px; border-radius: 20px; font-size: 14px;
+    background: rgba(251,114,153,0.2);
+  }
+  .tag button {
+    padding: 0; width: 20px; height: 20px; border-radius: 50%;
+    background: rgba(255,255,255,0.2); font-size: 14px; line-height: 1;
+  }
+  .hint { color: rgba(255,255,255,0.4); font-size: 12px; line-height: 1.6; margin-top: 6px; }
+  #toast {
+    position: fixed; left: 50%; bottom: 30px; transform: translateX(-50%);
+    background: rgba(0,0,0,0.85); padding: 12px 22px; border-radius: 24px;
+    font-size: 14px; opacity: 0; transition: opacity 0.25s; pointer-events: none;
+  }
+  #toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>🧒 儿童模式</h1>
+  <div class="sub">改完立即生效，电视上无需任何操作</div>
+
+  <div class="card">
+    <h2>开关</h2>
+    <label class="row"><input type="checkbox" id="enabled"> 儿童模式（关闭后恢复推荐流首页）</label>
+    <label class="row"><input type="checkbox" id="autoLearn"> 自动信任通过的 UP 主</label>
+  </div>
+
+  <div class="card">
+    <h2>内置主题</h2>
+    <div class="grid" id="presets"></div>
+  </div>
+
+  <div class="card">
+    <h2>自定义主题</h2>
+    <div class="tags" id="customList"></div>
+    <div class="input-row">
+      <input type="text" id="newLabel" placeholder="主题名，例如：熊出没">
+      <button id="btnAdd">添加</button>
+    </div>
+    <div class="input-row">
+      <input type="text" id="newExtra" placeholder="（可选）额外搜索词，逗号分隔">
+    </div>
+    <p class="hint">
+      主题名会同时作为搜索词和标题匹配词：搜索结果标题里出现这个词才会显示。<br>
+      想覆盖得更全，可以填额外搜索词，例如「熊出没, 熊出没之探险日记」。
+    </p>
+  </div>
+
+  <div class="card">
+    <h2>信任的 UP 主</h2>
+    <p class="hint" id="trustedInfo">加载中…</p>
+    <div style="margin-top:12px"><button class="danger" id="btnClearTrusted">清空信任名单</button></div>
+  </div>
+</div>
+<div id="toast"></div>
+
+<script>
+var state = { presets: [], custom: [] };
+
+function $(id) { return document.getElementById(id); }
+
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+
+var toastTimer = null;
+function toast(msg) {
+  var el = $('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(function () { el.classList.remove('show'); }, 1800);
+}
+
+function post(body) {
+  return fetch('/api/kids/config', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+}
+
+function load() {
+  return fetch('/api/kids/config').then(function (r) { return r.json(); }).then(function (cfg) {
+    state.presets = cfg.presets || [];
+    state.custom = cfg.custom || [];
+
+    $('enabled').checked = !!cfg.enabled;
+    $('autoLearn').checked = !!cfg.autoLearnUps;
+    $('trustedInfo').textContent = '当前已信任 ' + (cfg.trustedUpCount || 0) + ' 位 UP 主，' +
+      '他们的投稿会被视为安全内容。';
+
+    var box = $('presets');
+    box.innerHTML = state.presets.map(function (p) {
+      return '<label class="chip' + (p.enabled ? ' on' : '') + '">' +
+        '<span class="top"><input type="checkbox" class="preset" value="' + esc(p.id) + '"' +
+        (p.enabled ? ' checked' : '') + '><span>' + esc(p.label) + '</span></span>' +
+        '<small>' + esc((p.queries || []).join(' / ')) + '</small></label>';
+    }).join('');
+
+    Array.prototype.forEach.call(box.querySelectorAll('input.preset'), function (cb) {
+      cb.addEventListener('change', function () {
+        cb.closest('.chip').classList.toggle('on', cb.checked);
+        saveTopics();
+      });
+    });
+
+    renderCustom();
+  }).catch(function () {
+    toast('读取失败，请确认电视上的 App 正在运行');
+  });
+}
+
+function renderCustom() {
+  var box = $('customList');
+  if (state.custom.length === 0) {
+    box.innerHTML = '<span class="hint">还没有自定义主题</span>';
+    return;
+  }
+  box.innerHTML = state.custom.map(function (t) {
+    return '<span class="tag">' + esc(t.label) +
+      '<button class="x" data-id="' + esc(t.id) + '">×</button></span>';
+  }).join('');
+  Array.prototype.forEach.call(box.querySelectorAll('button.x'), function (b) {
+    b.addEventListener('click', function () { removeTopic(b.getAttribute('data-id')); });
+  });
+}
+
+function saveTopics() {
+  var ids = Array.prototype.map.call(
+    document.querySelectorAll('input.preset:checked'),
+    function (e) { return e.value; }
+  );
+  return post({
+    enabled: $('enabled').checked,
+    autoLearnUps: $('autoLearn').checked,
+    presetEnabledIds: ids
+  }).then(function (r) {
+    toast(r.ok ? '已保存 ✓' : '保存失败');
+  });
+}
+
+function addTopic() {
+  var label = $('newLabel').value.trim();
+  if (!label) { toast('请先填写主题名'); return; }
+  var extra = $('newExtra').value.split(/[,，、\s]+/).filter(Boolean);
+  var words = [label].concat(extra);
+  post({ addCustom: { label: label, queries: words, matchKeywords: words } })
+    .then(function (r) {
+      if (r.ok) {
+        $('newLabel').value = '';
+        $('newExtra').value = '';
+        toast('已添加 ✓');
+        return load();
+      }
+      return r.json().then(function (e) { toast(e.error || '添加失败'); });
+    });
+}
+
+function removeTopic(id) {
+  post({ removeCustomId: id }).then(function () {
+    toast('已删除');
+    load();
+  });
+}
+
+function clearTrusted() {
+  post({ clearTrustedUps: true }).then(function () {
+    toast('已清空');
+    load();
+  });
+}
+
+$('enabled').addEventListener('change', saveTopics);
+$('autoLearn').addEventListener('change', saveTopics);
+$('btnAdd').addEventListener('click', addTopic);
+$('btnClearTrusted').addEventListener('click', clearTrusted);
+$('newLabel').addEventListener('keydown', function (e) { if (e.key === 'Enter') addTopic(); });
+$('newExtra').addEventListener('keydown', function (e) { if (e.key === 'Enter') addTopic(); });
+
+load();
+</script>
+</body>
+</html>
+''';
 
   /// 提供 Web 管理界面
   Future<void> _serveWebUI(HttpRequest request) async {

@@ -3,6 +3,7 @@ import 'package:fluttertoast/fluttertoast.dart';
 
 import '../../../../config/kids_topics.dart';
 import '../../../../services/kids_mode_service.dart';
+import '../../../../services/local_server.dart';
 import '../widgets/setting_action_row.dart';
 import '../widgets/setting_toggle_row.dart';
 
@@ -67,9 +68,60 @@ class _KidsSettingsState extends State<KidsSettings> {
   Widget build(BuildContext context) {
     final enabled = KidsModeService.enabled;
     final topics = kidsTopicCatalog;
+    final customTopics = KidsModeService.customTopics;
     final trustedCount = KidsModeService.trustedUpMids.length;
+    final serverAddress = LocalServer.instance.address;
+    final configUrl = serverAddress == null ? null : '$serverAddress/kids';
 
     final List<Widget> rows = [
+      // 手机配置入口：电视遥控器打中文很痛苦，所以主推网页配置
+      Container(
+        padding: const EdgeInsets.all(14),
+        margin: const EdgeInsets.only(bottom: 12),
+        decoration: BoxDecoration(
+          color: Colors.blue.withValues(alpha: 0.14),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: Colors.blue.withValues(alpha: 0.45)),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.smartphone, color: Colors.lightBlueAccent, size: 22),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    '用手机添加主题（推荐）',
+                    style: TextStyle(
+                      color: Colors.lightBlueAccent,
+                      fontSize: 15,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    configUrl == null
+                        ? '电视未联网，暂时无法使用网页配置'
+                        : '手机连同一个 Wi-Fi，浏览器打开： $configUrl',
+                    style: TextStyle(
+                      color: configUrl == null ? Colors.orange : Colors.white,
+                      fontSize: 15,
+                      height: 1.4,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  const Text(
+                    '在网页里勾选内置主题、输入任意新主题名，改完立即生效',
+                    style: TextStyle(color: Colors.white54, fontSize: 12),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+
       // 说明
       Container(
         padding: const EdgeInsets.all(12),
@@ -120,6 +172,22 @@ class _KidsSettingsState extends State<KidsSettings> {
           if (mounted) setState(() {});
         },
       ),
+
+      // 自定义主题（网页里添加的，这里可以删）
+      ...customTopics.map((topic) {
+        return SettingActionRow(
+          label: '自定义：${topic.label}',
+          value: '搜索词：${topic.queries.join(' / ')}',
+          buttonLabel: '删除',
+          sidebarFocusNode: widget.sidebarFocusNode,
+          onTap: () async {
+            if (await _confirm('删除主题', '确定删除「${topic.label}」吗？')) {
+              await KidsModeService.removeCustomTopic(topic.id);
+              if (mounted) setState(() {});
+            }
+          },
+        );
+      }),
 
       // 主题开关
       ...topics.asMap().entries.map((entry) {

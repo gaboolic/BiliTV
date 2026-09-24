@@ -33,6 +33,38 @@ class KidsTopic {
     required this.matchKeywords,
     this.defaultEnabled = false,
   });
+
+  /// 是否是用户自己添加的主题（id 不在内置目录里）
+  bool get isCustom => !kidsTopicCatalog.any((t) => t.id == id);
+
+  /// 从持久化的 JSON 还原（用于自定义主题）
+  factory KidsTopic.fromJson(Map<String, dynamic> json) {
+    List<String> strList(dynamic value) {
+      if (value is List) {
+        return value
+            .map((e) => e.toString().trim())
+            .where((e) => e.isNotEmpty)
+            .toList();
+      }
+      return const [];
+    }
+
+    return KidsTopic(
+      id: json['id']?.toString() ?? '',
+      label: json['label']?.toString() ?? '',
+      queries: strList(json['queries']),
+      matchKeywords: strList(json['matchKeywords']),
+      defaultEnabled: false,
+    );
+  }
+
+  /// 序列化（用于保存自定义主题）
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'label': label,
+    'queries': queries,
+    'matchKeywords': matchKeywords,
+  };
 }
 
 /// 内置主题目录

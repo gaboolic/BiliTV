@@ -84,16 +84,21 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
-  /// 根据儿童模式计算可见标签，并尽量保持当前所在标签
-  void _applyTabVisibility() {
+  /// 根据儿童模式计算可见标签
+  ///
+  /// [keepCurrent] 为 true 时尽量停留在当前所在标签（设置里改儿童模式时用）；
+  /// 为 false 时定位到首页（App 启动时用，首页才是该有的入口，
+  /// 不能一打开就停在搜索键盘上）。
+  void _applyTabVisibility({bool keepCurrent = false}) {
     final kidsMode = KidsModeService.enabled;
 
-    // 记录当前所在标签类型，尽量切换后仍停留在同一页
-    final previousType = (_tabs.isNotEmpty &&
-            _selectedTabIndex >= 0 &&
-            _selectedTabIndex < _tabs.length)
-        ? _tabs[_selectedTabIndex].type
-        : SideTabType.home;
+    var target = SideTabType.home;
+    if (keepCurrent &&
+        _tabs.isNotEmpty &&
+        _selectedTabIndex >= 0 &&
+        _selectedTabIndex < _tabs.length) {
+      target = _tabs[_selectedTabIndex].type;
+    }
 
     _tabs = _allSideTabs
         .where(
@@ -104,13 +109,14 @@ class _HomeScreenState extends State<HomeScreen> {
         )
         .toList();
 
-    final index = _tabs.indexWhere((tab) => tab.type == previousType);
+    final index = _tabs.indexWhere((tab) => tab.type == target);
     _selectedTabIndex = index >= 0 ? index : _indexOf(SideTabType.home);
   }
 
   void _onKidsModeChanged() {
     if (!mounted) return;
-    setState(_applyTabVisibility);
+    // 改儿童模式/主题时保持在当前标签页
+    setState(() => _applyTabVisibility(keepCurrent: true));
 
     // 切换后把焦点放到当前标签上，避免焦点停在已隐藏的图标上
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -312,11 +318,12 @@ class _HomeScreenState extends State<HomeScreen> {
                       },
                       onTap: () => _handleSideBarTap(index), // 按确定键才刷新
                       // 直播/用户标签按右键导航到内容区
+                      // 用户标签现在未登录也能进设置，所以不再要求已登录
                       onMoveRight: type == SideTabType.live
                           ? () {
                               _liveTabKey.currentState?.focusFirstItem();
                             }
-                          : isUserTab && AuthService.isLoggedIn
+                          : isUserTab
                           ? () =>
                                 _loginTabKey.currentState?.focusFirstCategory()
                           : null,

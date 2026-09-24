@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import '../../services/auth_service.dart';
-import 'login/login_view.dart';
 import 'settings/settings_view.dart';
 
-/// 登录 Tab / 用户设置 Tab
+/// 用户 / 设置 Tab
+///
+/// 注意：未登录也直接进入设置页（登录入口移到了「账号」分类里）。
+/// 否则没登录 bilibili 就进不去设置，儿童模式的主题就没法改。
 class LoginTab extends StatefulWidget {
   final FocusNode? sidebarFocusNode;
   final VoidCallback? onLoginSuccess;
@@ -20,36 +22,21 @@ class LoginTabState extends State<LoginTab> {
 
   /// 请求第一个分类标签的焦点（用于从侧边栏导航）
   void focusFirstCategory() {
-    if (AuthService.isLoggedIn) {
-      _settingsKey.currentState?.focusFirstCategory();
-    }
-  }
-
-  void _handleLoginSuccess() {
-    setState(() {}); // Refresh to show SettingsView
-    widget.onLoginSuccess?.call();
+    _settingsKey.currentState?.focusFirstCategory();
   }
 
   Future<void> _handleLogout() async {
     await AuthService.logout();
-    if (mounted) {
-      setState(() {}); // Refresh to show LoginView
-    }
+    if (mounted) setState(() {});
+    widget.onLoginSuccess?.call();
   }
 
   @override
   Widget build(BuildContext context) {
-    if (AuthService.isLoggedIn) {
-      return SettingsView(
-        key: _settingsKey,
-        sidebarFocusNode: widget.sidebarFocusNode,
-        onLogout: _handleLogout,
-      );
-    }
-
-    return LoginView(
+    return SettingsView(
+      key: _settingsKey,
       sidebarFocusNode: widget.sidebarFocusNode,
-      onLoginSuccess: _handleLoginSuccess,
+      onLogout: _handleLogout,
     );
   }
 }
