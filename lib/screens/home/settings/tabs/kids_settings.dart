@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:fluttertoast/fluttertoast.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../../../config/kids_topics.dart';
 import '../../../../services/kids_mode_service.dart';
@@ -84,36 +85,95 @@ class _KidsSettingsState extends State<KidsSettings> {
           border: Border.all(color: Colors.blue.withValues(alpha: 0.45)),
         ),
         child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            const Icon(Icons.smartphone, color: Colors.lightBlueAccent, size: 22),
-            const SizedBox(width: 10),
+            // 二维码：手机直接扫，不用在遥控器上敲网址
+            if (configUrl != null) ...[
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: QrImageView(
+                  data: configUrl,
+                  size: 170,
+                  backgroundColor: Colors.white,
+                  padding: EdgeInsets.zero,
+                ),
+              ),
+              const SizedBox(width: 18),
+            ] else
+              const Padding(
+                padding: EdgeInsets.only(right: 14),
+                child: Icon(Icons.wifi_off, color: Colors.orange, size: 48),
+              ),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
-                    '用手机添加主题（推荐）',
-                    style: TextStyle(
-                      color: Colors.lightBlueAccent,
-                      fontSize: 15,
-                      fontWeight: FontWeight.bold,
-                    ),
+                  const Row(
+                    children: [
+                      Icon(
+                        Icons.smartphone,
+                        color: Colors.lightBlueAccent,
+                        size: 20,
+                      ),
+                      SizedBox(width: 8),
+                      Text(
+                        '用手机添加主题（推荐）',
+                        style: TextStyle(
+                          color: Colors.lightBlueAccent,
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    configUrl == null
-                        ? '电视未联网，暂时无法使用网页配置'
-                        : '手机连同一个 Wi-Fi，浏览器打开： $configUrl',
-                    style: TextStyle(
-                      color: configUrl == null ? Colors.orange : Colors.white,
-                      fontSize: 15,
-                      height: 1.4,
+                  const SizedBox(height: 8),
+                  if (configUrl == null)
+                    const Text(
+                      '电视未联网，暂时无法使用网页配置',
+                      style: TextStyle(color: Colors.orange, fontSize: 15),
+                    )
+                  else ...[
+                    const Text(
+                      '① 手机连上和电视同一个 Wi-Fi',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 15,
+                        height: 1.6,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 4),
+                    const Text(
+                      '② 用相机 / 微信扫左边的二维码',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 15,
+                        height: 1.6,
+                      ),
+                    ),
+                    const Text(
+                      '③ 在网页里勾选主题、输入新主题名',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 15,
+                        height: 1.6,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      configUrl,
+                      style: const TextStyle(
+                        color: Colors.white60,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 6),
                   const Text(
-                    '在网页里勾选内置主题、输入任意新主题名，改完立即生效',
-                    style: TextStyle(color: Colors.white54, fontSize: 12),
+                    '改完立即生效，电视上不需要任何操作',
+                    style: TextStyle(color: Colors.white38, fontSize: 12),
                   ),
                 ],
               ),
