@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:canvas_danmaku/canvas_danmaku.dart';
-import 'package:wakelock_plus/wakelock_plus.dart';
 import '../../core/plugin/plugin_types.dart';
 import '../../models/video.dart';
+import '../../services/keep_awake.dart';
 import '../../services/settings_service.dart';
 import 'widgets/video_layer.dart';
 import 'widgets/danmaku_layer.dart';
@@ -54,7 +54,9 @@ class _PlayerScreenState extends State<PlayerScreen>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     // 保持屏幕常亮，防止电视待机
-    WakelockPlus.enable();
+    // 用引用计数版本：pushReplacement 切下一个视频时，
+    // 新页面 initState 会先于旧页面 dispose 执行，直接 enable/disable 会互相打架
+    KeepAwake.acquire();
     loadSettings();
     initializePlayer();
   }
@@ -66,13 +68,16 @@ class _PlayerScreenState extends State<PlayerScreen>
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive) {
       reportPlaybackProgress();
+    } else if (state == AppLifecycleState.resumed) {
+      // 回到前台重新申请常亮：有些电视系统会在切后台时清掉这个标志
+      KeepAwake.reassert();
     }
   }
 
   @override
   void dispose() {
     // 恢复屏幕休眠
-    WakelockPlus.disable();
+    KeepAwake.release();
     WidgetsBinding.instance.removeObserver(this);
     hideTimer?.cancel();
     progressReportTimer?.cancel();
