@@ -204,7 +204,28 @@ mixin PlayerEventMixin on PlayerActionMixin {
   KeyEventResult _handleControlsVisibleKeyEvent(KeyEvent event) {
     if (event is! KeyDownEvent) return KeyEventResult.ignored;
 
+    // 下键：播放下一个（遥控器「往下滑 = 下一个」）
+    if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
+      playNextByRemote();
+      return KeyEventResult.handled;
+    }
+
+    // 上键：收起控制栏
+    if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
+      setState(() => showControls = false);
+      return KeyEventResult.handled;
+    }
+
+    // 还没用左右键选中按钮时，OK = 暂停/继续
+    // （「按 OK 出菜单，再按 OK 才是暂停」）
+    if (focusedButtonIndex < 0 && PlayerFocusHandler.isSelectKey(event)) {
+      togglePlayPause();
+      startHideTimer();
+      return KeyEventResult.handled;
+    }
+
     // 使用 PlayerFocusHandler 处理控制栏导航
+    // focusedButtonIndex 为 -1 时，左右键都会落到第一个按钮上
     final nav = PlayerFocusHandler.handleControlsNavigation(
       event,
       currentIndex: focusedButtonIndex,
@@ -266,6 +287,10 @@ mixin PlayerEventMixin on PlayerActionMixin {
         });
         break;
     }
+
+    // 面板已经打开了，清掉按钮选中态：
+    // 这样关掉面板后再按 OK 是暂停，而不是又把这个面板打开一次。
+    setState(() => focusedButtonIndex = -1);
   }
 
   /// 控制栏隐藏时的按键处理
@@ -294,16 +319,21 @@ mixin PlayerEventMixin on PlayerActionMixin {
       return KeyEventResult.ignored;
     }
 
-    // 上下键显示控制栏
-    if (event.logicalKey == LogicalKeyboardKey.arrowUp ||
-        event.logicalKey == LogicalKeyboardKey.arrowDown) {
-      toggleControls();
+    // 上键：唤出控制菜单
+    if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
+      showControlsMenu();
       return KeyEventResult.handled;
     }
 
-    // 确认键播放/暂停
+    // 下键：播放下一个（对应遥控器「往下滑 = 下一个」）
+    if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
+      if (event is KeyDownEvent) playNextByRemote();
+      return KeyEventResult.handled;
+    }
+
+    // 确认键：先唤出控制菜单（不是直接暂停；再按一次才暂停）
     if (PlayerFocusHandler.isSelectKey(event) && event is KeyDownEvent) {
-      togglePlayPause();
+      showControlsMenu();
       return KeyEventResult.handled;
     }
 

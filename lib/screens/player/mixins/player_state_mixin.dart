@@ -4,6 +4,7 @@ import 'package:video_player/video_player.dart';
 import 'package:canvas_danmaku/canvas_danmaku.dart';
 import '../player_screen.dart';
 import '../widgets/settings_panel.dart';
+import '../../../models/video.dart';
 import '../../../models/videoshot.dart';
 
 /// 播放器状态 Mixin
@@ -50,11 +51,16 @@ mixin PlayerStateMixin on State<PlayerScreen> {
 
   // UI 控制
   bool showControls = true;
+
+  /// 控制栏里当前选中的按钮：-1 表示「只是把菜单唤出来、还没选任何按钮」。
+  ///
+  /// 这个状态下按 OK 是暂停/继续（见 player_event_mixin），
+  /// 用左右键才会真正选中某个按钮。
+  int focusedButtonIndex = -1;
   bool showSettingsPanel = false;
   SettingsMenuType settingsMenuType = SettingsMenuType.main;
   Timer? hideTimer;
   Timer? progressReportTimer;
-  int focusedButtonIndex = 0; // 0=Play, 1=Settings, 2=Playlist, 3=More
   int focusedSettingIndex = 0;
 
   // 分辨率
@@ -86,8 +92,34 @@ mixin PlayerStateMixin on State<PlayerScreen> {
   // 自动续播
   int? initialProgress; // 从历史记录恢复的进度
 
-  // 相关视频 (用于自动连播)
-  List<dynamic> relatedVideos = [];
+  // ==================== 播放列表（自动连播用）====================
+  //
+  // 列表就是用户当前在浏览的那一屏：首页某个主题的网格，或搜索结果。
+  // 播完一个 / 按下键，都顺着它往下走。
+
+  /// 当前视频在播放列表中的下标，找不到返回 -1
+  int get currentPlaylistIndex {
+    final list = widget.playlist;
+    if (list == null || list.isEmpty) return -1;
+
+    // 优先按 bvid 定位，这样调用方只需传列表，不必算下标
+    final byBvid = list.indexWhere((v) => v.bvid == widget.video.bvid);
+    if (byBvid >= 0) return byBvid;
+
+    final i = widget.playlistIndex;
+    return (i >= 0 && i < list.length) ? i : -1;
+  }
+
+  /// 播放列表里是否还有下一个
+  bool get hasNextInPlaylist {
+    final list = widget.playlist;
+    final i = currentPlaylistIndex;
+    return list != null && i >= 0 && i + 1 < list.length;
+  }
+
+  /// 播放列表里的下一个视频
+  Video? get nextInPlaylist =>
+      hasNextInPlaylist ? widget.playlist![currentPlaylistIndex + 1] : null;
 
   // 返回键处理标志 - 防止 handleGlobalKeyEvent 和 onPopInvoked 重复处理
   bool backKeyJustHandled = false;

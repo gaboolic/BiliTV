@@ -153,9 +153,19 @@ class _SearchResultsViewState extends State<SearchResultsView> {
   }
 
   void _onVideoTap(Video video) {
-    Navigator.of(
-      context,
-    ).push(MaterialPageRoute(builder: (_) => PlayerScreen(video: video)));
+    // 带上这次搜索结果作为播放列表，播完 / 按下键都顺着它往下走
+    final playlist = List<Video>.from(_searchResults);
+    final index = playlist.indexWhere((v) => v.bvid == video.bvid);
+
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => PlayerScreen(
+          video: video,
+          playlist: playlist,
+          playlistIndex: index < 0 ? 0 : index,
+        ),
+      ),
+    );
   }
 
   @override

@@ -25,7 +25,19 @@ import 'mixins/player_event_mixin.dart';
 class PlayerScreen extends StatefulWidget {
   final Video video;
 
-  const PlayerScreen({super.key, required this.video});
+  /// 播放列表（就是用户当前在浏览的那一屏内容：首页某个主题的网格、
+  /// 或搜索结果）。自动连播和「按下键播下一个」都基于它。
+  final List<Video>? playlist;
+
+  /// 当前视频在 [playlist] 中的下标
+  final int playlistIndex;
+
+  const PlayerScreen({
+    super.key,
+    required this.video,
+    this.playlist,
+    this.playlistIndex = 0,
+  });
 
   @override
   State<PlayerScreen> createState() => _PlayerScreenState();

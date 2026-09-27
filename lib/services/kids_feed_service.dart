@@ -51,18 +51,7 @@ class KidsFeedService {
       matched[video.bvid] = video;
     }
 
-    // 结果太少时，补充该主题里已经学到、被信任的 UP 主内容
-    if (matched.length < 8) {
-      for (final video in raw) {
-        if (video.bvid.isEmpty) continue;
-        if (matched.containsKey(video.bvid)) continue;
-        if (!KidsModeService.isTrustedUp(video.ownerMid)) continue;
-        matched[video.bvid] = video;
-      }
-    }
-
     final videos = matched.values.toList();
-    KidsModeService.learnFrom(videos);
     return videos;
   }
 
@@ -113,7 +102,6 @@ class KidsFeedService {
       }
     }
 
-    KidsModeService.learnFrom(result);
     return result.take(limit).toList();
   }
 
@@ -163,7 +151,6 @@ class KidsFeedService {
     }
 
     final videos = collected.values.toList();
-    KidsModeService.learnFrom(videos);
     return KidsSearchPage(
       videos: videos,
       lastPage: lastPage,

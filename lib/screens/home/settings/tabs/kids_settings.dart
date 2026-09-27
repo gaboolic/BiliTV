@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:fluttertoast/fluttertoast.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../../../config/kids_topics.dart';
@@ -29,13 +28,11 @@ class _KidsSettingsState extends State<KidsSettings> {
   void initState() {
     super.initState();
     KidsModeService.revision.addListener(_onChanged);
-    KidsModeService.trustRevision.addListener(_onChanged);
   }
 
   @override
   void dispose() {
     KidsModeService.revision.removeListener(_onChanged);
-    KidsModeService.trustRevision.removeListener(_onChanged);
     super.dispose();
   }
 
@@ -70,7 +67,6 @@ class _KidsSettingsState extends State<KidsSettings> {
     final enabled = KidsModeService.enabled;
     final topics = kidsTopicCatalog;
     final customTopics = KidsModeService.customTopics;
-    final trustedCount = KidsModeService.trustedUpMids.length;
     final serverAddress = LocalServer.instance.address;
     final configUrl = serverAddress == null ? null : '$serverAddress/kids';
 
@@ -221,18 +217,6 @@ class _KidsSettingsState extends State<KidsSettings> {
         },
       ),
 
-      // 自动学习 UP 主
-      SettingToggleRow(
-        label: '自动信任通过的UP主',
-        subtitle: '标题命中主题的视频，其作者会被加入信任名单，之后只看他们的投稿也很安全',
-        value: KidsModeService.autoLearnUps,
-        sidebarFocusNode: widget.sidebarFocusNode,
-        onChanged: (value) async {
-          await KidsModeService.setAutoLearnUps(value);
-          if (mounted) setState(() {});
-        },
-      ),
-
       // 自定义主题（网页里添加的，这里可以删）
       ...customTopics.map((topic) {
         return SettingActionRow(
@@ -252,10 +236,12 @@ class _KidsSettingsState extends State<KidsSettings> {
       // 主题开关
       ...topics.asMap().entries.map((entry) {
         final topic = entry.value;
+        final isLast = entry.key == topics.length - 1;
         return SettingToggleRow(
           label: topic.label,
           subtitle: '搜索词：${topic.queries.join(' / ')}',
           value: KidsModeService.isTopicEnabled(topic.id),
+          isLast: isLast,
           sidebarFocusNode: widget.sidebarFocusNode,
           onChanged: (value) async {
             await KidsModeService.setTopicEnabled(topic.id, value);
@@ -263,28 +249,6 @@ class _KidsSettingsState extends State<KidsSettings> {
           },
         );
       }),
-
-      // 清空信任名单
-      SettingActionRow(
-        label: '信任的UP主',
-        value: trustedCount == 0 ? '暂无' : '已信任 $trustedCount 位UP主',
-        buttonLabel: '清空',
-        isLast: true,
-        sidebarFocusNode: widget.sidebarFocusNode,
-        onTap: () async {
-          if (await _confirm('确认清空', '确定要清空信任的UP主名单吗？')) {
-            await KidsModeService.clearTrustedUps();
-            if (mounted) {
-              setState(() {});
-              Fluttertoast.showToast(
-                msg: '已清空信任名单',
-                toastLength: Toast.LENGTH_SHORT,
-                gravity: ToastGravity.CENTER,
-              );
-            }
-          }
-        },
-      ),
     ];
 
     return ListView(

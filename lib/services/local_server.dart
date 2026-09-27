@@ -197,7 +197,7 @@ class LocalServer {
 
   /// 儿童模式 API
   ///
-  /// GET  /api/kids/config  读取当前配置（开关、内置主题、自定义主题、信任UP主数量）
+  /// GET  /api/kids/config  读取当前配置（开关、内置主题、自定义主题）
   /// POST /api/kids/config  修改配置，body 里给出要改的字段即可
   Future<void> _handleKidsApi(
     HttpRequest request,
@@ -214,8 +214,6 @@ class LocalServer {
     if (method == 'GET') {
       _jsonResponse(request, {
         'enabled': KidsModeService.enabled,
-        'autoLearnUps': KidsModeService.autoLearnUps,
-        'trustedUpCount': KidsModeService.trustedUpMids.length,
         'presets': kidsTopicCatalog
             .map(
               (t) => {
@@ -257,12 +255,6 @@ class LocalServer {
 
     if (body['enabled'] is bool) {
       await KidsModeService.setEnabled(body['enabled'] as bool);
-    }
-    if (body['autoLearnUps'] is bool) {
-      await KidsModeService.setAutoLearnUps(body['autoLearnUps'] as bool);
-    }
-    if (body['clearTrustedUps'] == true) {
-      await KidsModeService.clearTrustedUps();
     }
 
     // 内置主题：请求里给的是“最终要启用的集合”
@@ -673,7 +665,6 @@ class LocalServer {
   <div class="card">
     <h2>开关</h2>
     <label class="row"><input type="checkbox" id="enabled"> 儿童模式（关闭后恢复推荐流首页）</label>
-    <label class="row"><input type="checkbox" id="autoLearn"> 自动信任通过的 UP 主</label>
   </div>
 
   <div class="card">
@@ -699,9 +690,12 @@ class LocalServer {
   </div>
 
   <div class="card">
-    <h2>信任的 UP 主</h2>
-    <p class="hint" id="trustedInfo">加载中…</p>
-    <div style="margin-top:12px"><button class="danger" id="btnClearTrusted">清空信任名单</button></div>
+    <h2>过滤规则</h2>
+    <p class="hint">
+      只有标题命中主题关键词的视频才会显示，<b>没有按 UP 主放行的通道</b>，
+      也不会因为看得多而自动放宽。<br>
+      标题带「漫剧 / 短剧 / 免费观看 / 荃集」等投流标记的内容全局屏蔽，对所有主题生效。
+    </p>
   </div>
 </div>
 <div id="toast"></div>
@@ -740,9 +734,6 @@ function load() {
     state.custom = cfg.custom || [];
 
     $('enabled').checked = !!cfg.enabled;
-    $('autoLearn').checked = !!cfg.autoLearnUps;
-    $('trustedInfo').textContent = '当前已信任 ' + (cfg.trustedUpCount || 0) + ' 位 UP 主，' +
-      '他们的投稿会被视为安全内容。';
 
     var box = $('presets');
     box.innerHTML = state.presets.map(function (p) {
@@ -790,7 +781,6 @@ function saveTopics() {
   );
   return post({
     enabled: $('enabled').checked,
-    autoLearnUps: $('autoLearn').checked,
     presetEnabledIds: ids
   }).then(function (r) {
     toast(r.ok ? '已保存 ✓' : '保存失败');
@@ -821,17 +811,8 @@ function removeTopic(id) {
   });
 }
 
-function clearTrusted() {
-  post({ clearTrustedUps: true }).then(function () {
-    toast('已清空');
-    load();
-  });
-}
-
 $('enabled').addEventListener('change', saveTopics);
-$('autoLearn').addEventListener('change', saveTopics);
 $('btnAdd').addEventListener('click', addTopic);
-$('btnClearTrusted').addEventListener('click', clearTrusted);
 $('newLabel').addEventListener('keydown', function (e) { if (e.key === 'Enter') addTopic(); });
 $('newExtra').addEventListener('keydown', function (e) { if (e.key === 'Enter') addTopic(); });
 

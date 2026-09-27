@@ -20,21 +20,18 @@ class KidsModeService {
 
   static const String _enabledKey = 'kids_mode_enabled';
   static const String _topicsKey = 'kids_mode_topic_ids';
-  static const String _trustedUpsKey = 'kids_mode_trusted_ups';
-  static const String _autoLearnKey = 'kids_mode_auto_learn';
   static const String _customTopicsKey = 'kids_mode_custom_topics';
+
+  /// 已废弃：早期版本会把命中的 UP 主自动加入信任名单，现在已完全去掉。
+  /// 这里在初始化时清掉遗留数据，避免旧配置继续影响过滤结果。
+  static const String _legacyTrustedUpsKey = 'kids_mode_trusted_ups';
+  static const String _legacyAutoLearnKey = 'kids_mode_auto_learn';
 
   static SharedPreferences? _prefs;
   static bool _loaded = false;
 
   /// 配置版本号，任何会改变“哪些内容可见”的改动都会 +1，UI 监听它来刷新
   static final ValueNotifier<int> revision = ValueNotifier<int>(0);
-
-  /// 信任名单版本号
-  ///
-  /// 单独一个通知源：自动学习 UP 主只影响设置页的数字显示，
-  /// 不应该触发首页重建（否则浏览过程中会被强制拉回第一个主题）。
-  static final ValueNotifier<int> trustRevision = ValueNotifier<int>(0);
 
   static void _notify() => revision.value++;
 
@@ -44,6 +41,9 @@ class KidsModeService {
     _prefs = await SharedPreferences.getInstance();
     // 清掉可能在 init 之前读到的空缓存，让自定义主题按真实 prefs 重新解析
     _customCache = null;
+    // 清掉旧的“信任 UP 主”数据（该机制已移除）
+    await _prefs!.remove(_legacyTrustedUpsKey);
+    await _prefs!.remove(_legacyAutoLearnKey);
     _loaded = true;
     _notify();
   }
@@ -54,15 +54,6 @@ class KidsModeService {
   static Future<void> setEnabled(bool value) async {
     await init();
     await _prefs!.setBool(_enabledKey, value);
-    _notify();
-  }
-
-  /// 是否自动把通过的 UP 主加入信任名单
-  static bool get autoLearnUps => _prefs?.getBool(_autoLearnKey) ?? true;
-
-  static Future<void> setAutoLearnUps(bool value) async {
-    await init();
-    await _prefs!.setBool(_autoLearnKey, value);
     _notify();
   }
 
@@ -191,44 +182,6 @@ class KidsModeService {
   static Future<void> setCustomTopics(List<KidsTopic> list) =>
       _saveCustomTopics(list);
 
-  // ==================== UP 主白名单 ====================
-
-  static Set<int> get trustedUpMids {
-    final saved = _prefs?.getStringList(_trustedUpsKey) ?? const <String>[];
-    return saved.map(int.tryParse).whereType<int>().toSet();
-  }
-
-  static bool isTrustedUp(int mid) => mid > 0 && trustedUpMids.contains(mid);
-
-  static Future<void> clearTrustedUps() async {
-    await init();
-    await _prefs!.remove(_trustedUpsKey);
-    trustRevision.value++;
-    _notify();
-  }
-
-  /// 从一批主题内容中学习可信 UP 主
-  ///
-  /// 只学习“标题命中主题关键词”的视频作者，避免把无关内容带进来。
-  static void learnFrom(Iterable<Video> videos) {
-    if (!enabled || !autoLearnUps) return;
-
-    final current = trustedUpMids;
-    final before = current.length;
-
-    for (final video in videos) {
-      if (video.ownerMid <= 0) continue;
-      if (topicOf(video) == null) continue;
-      current.add(video.ownerMid);
-    }
-
-    if (current.length == before) return;
-    // 异步写盘，不阻塞 UI；只通知信任名单变化，不触发首页重建
-    _prefs
-        ?.setStringList(_trustedUpsKey, current.map((e) => e.toString()).toList())
-        .then((_) => trustRevision.value++);
-  }
-
   // ==================== 过滤 ====================
 
   /// 标题是否命中全局硬屏蔽词（投流漫剧/广告）
@@ -276,13 +229,12 @@ class KidsModeService {
 
   /// 视频是否允许出现
   ///
-  /// 儿童模式关闭时一律放行；开启时必须是命中主题关键词，
-  /// 或者作者在信任 UP 主名单中。
-  /// 全局硬屏蔽词优先于信任名单：投流漫剧/广告即使来自信任的 UP 主也挡掉。
+  /// 儿童模式关闭时一律放行；开启时**必须是标题命中某个已启用主题的关键词**。
+  /// 没有任何按 UP 主放行的通道：白名单只由关键词决定，
+  /// 也不会因为“看得多”而自动放宽。
   static bool isAllowed(Video video) {
     if (!enabled) return true;
     if (isGloballyBlocked(video)) return false;
-    if (isTrustedUp(video.ownerMid)) return true;
     return topicOf(video) != null;
   }
 

@@ -276,9 +276,20 @@ class HomeTabState extends State<HomeTab> {
   }
 
   void _onVideoTap(Video video) {
-    Navigator.of(
-      context,
-    ).push(MaterialPageRoute(builder: (context) => PlayerScreen(video: video)));
+    // 把「当前这一屏」的列表一起带进播放器：
+    // 播完自动连播、以及遥控器按下键，都顺着这个列表往下走。
+    final playlist = List<Video>.from(_currentVideos);
+    final index = playlist.indexWhere((v) => v.bvid == video.bvid);
+
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => PlayerScreen(
+          video: video,
+          playlist: playlist,
+          playlistIndex: index < 0 ? 0 : index,
+        ),
+      ),
+    );
   }
 
   @override

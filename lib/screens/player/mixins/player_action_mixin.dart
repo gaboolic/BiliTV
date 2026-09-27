@@ -6,8 +6,6 @@ import 'package:fluttertoast/fluttertoast.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../models/video.dart' as models;
 import '../../../services/bilibili_api.dart';
-import '../../../services/kids_feed_service.dart';
-import '../../../services/kids_mode_service.dart';
 import '../../../services/settings_service.dart';
 import '../../../services/auth_service.dart';
 import '../../../services/mpd_generator.dart';
@@ -121,26 +119,8 @@ mixin PlayerActionMixin on PlayerStateMixin {
         if (idx != -1) focusedEpisodeIndex = idx;
       }
 
-      // 异步加载相关视频 (用于自动连播)
-      // 儿童模式下由 KidsFeedService 做白名单过滤，不会连播到无关内容
-      KidsFeedService.relatedFor(widget.video).then((videos) {
-        if (mounted) {
-          relatedVideos = videos
-              .map(
-                (v) => {
-                  'bvid': v.bvid,
-                  'title': v.title,
-                  'pic': v.pic,
-                  'duration': v.duration,
-                  'pubdate': v.pubdate,
-                  'mid': v.ownerMid,
-                  'owner': {'name': v.ownerName, 'face': v.ownerFace},
-                  'stat': {'view': v.view},
-                },
-              )
-              .toList();
-        }
-      });
+      // 自动连播不再依赖「相关推荐」接口：
+      // 直接顺着进来时的播放列表（首页主题网格 / 搜索结果）往下播。
 
       // 编码器回退重试列表:
       // 1. null = 用户设置优先（自动则按硬件最优 AV1>HEVC>AVC）
@@ -620,36 +600,57 @@ mixin PlayerActionMixin on PlayerStateMixin {
       }
     }
 
-    // 2. 所有集数播完，检查相关视频
-    if (relatedVideos.isNotEmpty) {
-      final nextVideo = relatedVideos.first;
+    // 2. 所有集数播完，接着播播放列表里的下一个（首页主题 / 搜索结果）
+    if (hasNextInPlaylist) {
       Fluttertoast.showToast(
-        msg: KidsModeService.enabled ? '自动播放同主题视频' : '自动播放推荐视频',
+        msg: '自动播放列表中的下一个',
         toastLength: Toast.LENGTH_SHORT,
         gravity: ToastGravity.TOP,
       );
-      // 导航到新视频
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(
-          builder: (_) => PlayerScreen(
-            video: models.Video(
-              bvid: nextVideo['bvid'] ?? '',
-              title: nextVideo['title'] ?? '',
-              pic: nextVideo['pic'] ?? '',
-              ownerName: nextVideo['owner']?['name'] ?? '',
-              ownerFace: nextVideo['owner']?['face'] ?? '',
-              ownerMid: nextVideo['mid'] ?? 0,
-              duration: nextVideo['duration'] ?? 0,
-              pubdate: nextVideo['pubdate'] ?? 0,
-              view: nextVideo['stat']?['view'] ?? 0,
-            ),
-          ),
-        ),
-      );
+      // 换视频前先上报「已看完」，否则这个视频不会被标记为看完
+      reportPlaybackProgress(overrideProgress: -1);
+      playNextInPlaylist();
+      return;
     }
 
     // 🔥 3. 无论是否有后续动作，都强制上报一次"已看完"
     reportPlaybackProgress(overrideProgress: -1);
+  }
+
+  /// 播放下一个：先看多 P 选集，再顺着播放列表往下走
+  void playNextInPlaylist() {
+    final next = nextInPlaylist;
+    if (next == null) {
+      Fluttertoast.showToast(
+        msg: '已经是本页最后一个了',
+        toastLength: Toast.LENGTH_SHORT,
+        gravity: ToastGravity.BOTTOM,
+      );
+      return;
+    }
+
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(
+        builder: (_) => PlayerScreen(
+          video: next,
+          playlist: widget.playlist,
+          playlistIndex: currentPlaylistIndex + 1,
+        ),
+      ),
+    );
+  }
+
+  /// 遥控器「下」键：播放下一个
+  void playNextByRemote() {
+    if (widget.playlist == null || widget.playlist!.isEmpty) {
+      Fluttertoast.showToast(
+        msg: '当前没有播放列表',
+        toastLength: Toast.LENGTH_SHORT,
+        gravity: ToastGravity.BOTTOM,
+      );
+      return;
+    }
+    playNextInPlaylist();
   }
 
   /// 上报播放进度 (暂停/退出时调用)
@@ -748,6 +749,18 @@ mixin PlayerActionMixin on PlayerStateMixin {
     if (!showSettingsPanel) {
       startHideTimer();
     }
+  }
+
+  /// 唤出控制菜单，并且**不预选任何按钮**
+  ///
+  /// 这样「按 OK 出现控制菜单，再按 OK 才是暂停」才成立：
+  /// 唤出后 OK 走暂停，左右键才进入按钮选择。
+  void showControlsMenu() {
+    setState(() {
+      showControls = true;
+      focusedButtonIndex = -1;
+    });
+    startHideTimer();
   }
 
   void startHideTimer() {
