@@ -78,6 +78,7 @@ class KidsModeService {
   ///
   /// 版本升级后新加的内置主题要自动打开一次，
   /// 但用户手动关掉之后就不要再自动打开，所以要记下它已经被见过。
+  /// 老版本还没有这个记录时按“空”处理：所有默认主题都补开一次。
   static const String _knownTopicIdsKey = 'kids_mode_known_topic_ids';
 
   static Set<String>? _knownTopicIdsCache;
@@ -85,8 +86,7 @@ class KidsModeService {
   static Set<String> get _knownTopicIds {
     if (_knownTopicIdsCache != null) return _knownTopicIdsCache!;
     final raw = _prefs?.getStringList(_knownTopicIdsKey);
-    _knownTopicIdsCache =
-        raw?.toSet() ?? kidsTopicCatalog.map((t) => t.id).toSet();
+    _knownTopicIdsCache = raw?.toSet() ?? <String>{};
     return _knownTopicIdsCache!;
   }
 

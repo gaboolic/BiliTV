@@ -67,6 +67,40 @@ void main() {
     expect(KidsModeService.isTopicEnabled('pop_music'), isFalse);
   });
 
+  test('从没有 known 记录的旧版本升级，也补齐所有默认主题', () async {
+    // 老版本只存了 7 个主题，没有 kids_mode_known_topic_ids
+    SharedPreferences.setMockInitialValues({
+      'kids_mode_topic_ids': <String>[
+        'minecraft',
+        'barbie',
+        'nail_art',
+        'house_build',
+        'mc_build',
+        'drawing',
+        'handicraft',
+      ],
+    });
+    await KidsModeService.init();
+
+    for (final id in [
+      'peppa',
+      'paw_patrol',
+      'doraemon',
+      'boonie_bears',
+      'sponge_bob',
+      'terraria',
+      'stardew_valley',
+      'pop_music',
+      'my_ups',
+    ]) {
+      expect(KidsModeService.isTopicEnabled(id), isTrue, reason: id);
+    }
+
+    // 关掉一个，下次读取不会再被打开
+    await KidsModeService.setTopicEnabled('terraria', false);
+    expect(KidsModeService.isTopicEnabled('terraria'), isFalse);
+  });
+
   test('音乐区排行榜只返回歌曲类内容', () async {
     final videos = await BilibiliApi.getMusicRanking();
     if (videos.isEmpty) {
