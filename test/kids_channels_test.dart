@@ -34,7 +34,7 @@ void main() {
     expect(KidsModeService.isTopicEnabled('my_ups'), isTrue);
   });
 
-  test('新加的五个卡通主题默认打开', () async {
+  test('新加的卡通和游戏主题默认打开', () async {
     await KidsModeService.init();
     for (final id in [
       'peppa',
@@ -42,6 +42,8 @@ void main() {
       'doraemon',
       'boonie_bears',
       'sponge_bob',
+      'terraria',
+      'stardew_valley',
     ]) {
       expect(KidsModeService.isTopicEnabled(id), isTrue, reason: id);
     }
