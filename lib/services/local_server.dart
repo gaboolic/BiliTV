@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import '../config/kids_topics.dart';
+import '../config/kids_up_owners.dart';
 import '../plugins/ad_filter_plugin.dart';
 import '../plugins/danmaku_enhance_plugin.dart';
 import '../core/plugin/plugin_manager.dart';
@@ -223,6 +224,7 @@ class LocalServer {
                 'queries': t.queries,
                 'matchKeywords': t.matchKeywords,
                 'excludeKeywords': t.excludeKeywords,
+                'kind': t.kind.name,
               },
             )
             .toList(),
@@ -234,8 +236,12 @@ class LocalServer {
                 'queries': t.queries,
                 'matchKeywords': t.matchKeywords,
                 'excludeKeywords': t.excludeKeywords,
+                'kind': t.kind.name,
               },
             )
+            .toList(),
+        'upOwners': KidsModeService.upOwners
+            .map((o) => {'name': o.name, 'mid': o.mid})
             .toList(),
         'globalBlockKeywords': kidsGlobalBlockKeywords,
       });
@@ -281,6 +287,38 @@ class LocalServer {
         label: label,
         extraQueries: _splitKeywords(add['queries']),
         extraKeywords: _splitKeywords(add['matchKeywords']),
+      );
+    }
+
+    // 添加 UP 主（只给昵称时，服务器会按昵称找出最像的那个账号）
+    final addUp = body['addUpOwner'];
+    if (addUp is Map) {
+      final name = addUp['name']?.toString().trim() ?? '';
+      if (name.isEmpty) {
+        _jsonResponse(request, {'error': 'UP 主昵称不能为空'}, 400);
+        return;
+      }
+
+      var mid = addUp['mid'] is int ? addUp['mid'] as int : 0;
+      if (mid <= 0) {
+        final resolved = await KidsModeService.resolveUpOwner(
+          KidsUpOwner(name: name),
+        );
+        mid = resolved.mid;
+        if (mid <= 0) {
+          _jsonResponse(request, {'error': '没有找到「$name」这个账号'}, 404);
+          return;
+        }
+      }
+      await KidsModeService.addUpOwner(name: name, mid: mid);
+    }
+
+    // 删除 UP 主
+    final removeUp = body['removeUpOwner'];
+    if (removeUp is Map) {
+      await KidsModeService.removeUpOwner(
+        name: removeUp['name']?.toString(),
+        mid: removeUp['mid'] is int ? removeUp['mid'] as int : null,
       );
     }
 
@@ -690,10 +728,23 @@ class LocalServer {
   </div>
 
   <div class="card">
+    <h2>指定 UP 主</h2>
+    <div class="tags" id="upList"></div>
+    <div class="input-row">
+      <input type="text" id="newUp" placeholder="UP 主昵称，例如：怪逗逗">
+      <button id="btnAddUp">添加</button>
+    </div>
+    <p class="hint">
+      首页「我的UP主」一行只放这些账号的投稿，他们发的视频在儿童模式下也会直接放行。<br>
+      只填昵称时，系统会自动挑粉丝最多的同名账号；挑错了可以在电视上的
+      「设置 → 儿童模式」里删掉重加。
+    </p>
+  </div>
+
+  <div class="card">
     <h2>过滤规则</h2>
     <p class="hint">
-      只有标题命中主题关键词的视频才会显示，<b>没有按 UP 主放行的通道</b>，
-      也不会因为看得多而自动放宽。<br>
+      除了「指定 UP 主」名单里的账号，其余内容都要标题命中主题关键词才显示。<br>
       标题带「漫剧 / 短剧 / 免费观看 / 荃集」等投流标记的内容全局屏蔽，对所有主题生效。
     </p>
   </div>
@@ -701,7 +752,7 @@ class LocalServer {
 <div id="toast"></div>
 
 <script>
-var state = { presets: [], custom: [] };
+var state = { presets: [], custom: [], upOwners: [] };
 
 function $(id) { return document.getElementById(id); }
 
@@ -732,16 +783,25 @@ function load() {
   return fetch('/api/kids/config').then(function (r) { return r.json(); }).then(function (cfg) {
     state.presets = cfg.presets || [];
     state.custom = cfg.custom || [];
+    state.upOwners = cfg.upOwners || [];
 
     $('enabled').checked = !!cfg.enabled;
 
     var box = $('presets');
     box.innerHTML = state.presets.map(function (p) {
       var ex = p.excludeKeywords || [];
+      var sub = '';
+      if (p.kind === 'music') {
+        sub = '音乐区排行榜 · 流行歌曲';
+      } else if (p.kind === 'upOwners') {
+        sub = '来自「指定 UP 主」名单';
+      } else {
+        sub = esc((p.queries || []).join(' / '));
+      }
       return '<label class="chip' + (p.enabled ? ' on' : '') + '">' +
         '<span class="top"><input type="checkbox" class="preset" value="' + esc(p.id) + '"' +
         (p.enabled ? ' checked' : '') + '><span>' + esc(p.label) + '</span></span>' +
-        '<small>' + esc((p.queries || []).join(' / ')) + '</small>' +
+        '<small>' + sub + '</small>' +
         (ex.length ? '<small class="ex">已屏蔽 ' + ex.length + ' 个词</small>' : '') +
         '</label>';
     }).join('');
@@ -754,8 +814,42 @@ function load() {
     });
 
     renderCustom();
+    renderUpOwners();
   }).catch(function () {
     toast('读取失败，请确认电视上的 App 正在运行');
+  });
+}
+
+function renderUpOwners() {
+  var box = $('upList');
+  if (state.upOwners.length === 0) {
+    box.innerHTML = '<span class="hint">还没有指定 UP 主</span>';
+    return;
+  }
+  box.innerHTML = state.upOwners.map(function (o) {
+    return '<span class="tag">' + esc(o.name) +
+      (o.mid ? ' <small style="opacity:.6">UID ' + esc(o.mid) + '</small>' : '') +
+      '<button class="x" data-mid="' + esc(o.mid) + '" data-name="' + esc(o.name) + '">×</button></span>';
+  }).join('');
+  Array.prototype.forEach.call(box.querySelectorAll('button.x'), function (b) {
+    b.addEventListener('click', function () {
+      var mid = parseInt(b.getAttribute('data-mid') || '0', 10);
+      post({ removeUpOwner: { mid: mid, name: b.getAttribute('data-name') } })
+        .then(function () { toast('已删除'); load(); });
+    });
+  });
+}
+
+function addUpOwner() {
+  var name = $('newUp').value.trim();
+  if (!name) { toast('请先填写 UP 主昵称'); return; }
+  post({ addUpOwner: { name: name } }).then(function (r) {
+    return r.json().then(function (data) {
+      if (data.error) { toast(data.error); return; }
+      $('newUp').value = '';
+      toast('已添加 ✓');
+      load();
+    });
   });
 }
 
@@ -813,6 +907,8 @@ function removeTopic(id) {
 
 $('enabled').addEventListener('change', saveTopics);
 $('btnAdd').addEventListener('click', addTopic);
+$('btnAddUp').addEventListener('click', addUpOwner);
+$('newUp').addEventListener('keydown', function (e) { if (e.key === 'Enter') addUpOwner(); });
 $('newLabel').addEventListener('keydown', function (e) { if (e.key === 'Enter') addTopic(); });
 $('newExtra').addEventListener('keydown', function (e) { if (e.key === 'Enter') addTopic(); });
 

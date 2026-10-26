@@ -10,7 +10,7 @@
 library;
 
 // 导出子模块，供外部直接使用
-export 'api/video_api.dart' show DynamicFeed;
+export 'api/video_api.dart' show DynamicFeed, BiliUser;
 
 import 'api/auth_api.dart';
 import 'api/video_api.dart';
@@ -91,6 +91,13 @@ class BilibiliApi {
     int page = 1,
     String order = 'pubdate',
   }) => VideoApi.getSpaceVideos(mid: mid, page: page, order: order);
+
+  /// 搜索 UP 主（按昵称找账号）
+  static Future<List<BiliUser>> searchUsers(String keyword) =>
+      VideoApi.searchUsers(keyword);
+
+  /// 获取音乐区排行榜（流行歌曲）
+  static Future<List<Video>> getMusicRanking() => VideoApi.getMusicRanking();
 
   // ========== 播放相关 ==========
 

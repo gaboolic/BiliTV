@@ -3,6 +3,7 @@ import 'package:http/http.dart' as http;
 import 'base_api.dart';
 import 'sign_utils.dart';
 import '../auth_service.dart';
+import '../../config/kids_topics.dart';
 import '../../models/video.dart';
 
 /// 视频列表和搜索相关 API
@@ -386,6 +387,128 @@ class VideoApi {
       // 忽略错误
     }
     return [];
+  }
+
+  /// 搜索 UP 主 (需要 WBI 签名)
+  ///
+  /// 用于「我的 UP 主」频道：只有昵称时按昵称找到具体账号。
+  static Future<List<BiliUser>> searchUsers(String keyword) async {
+    if (keyword.trim().isEmpty) return [];
+
+    try {
+      await BaseApi.ensureWbiKeys();
+
+      Map<String, String> params = {
+        'search_type': 'bili_user',
+        'keyword': keyword.trim(),
+        'page': '1',
+      };
+
+      if (BaseApi.imgKey != null && BaseApi.subKey != null) {
+        params = SignUtils.signWithWbi(
+          params,
+          BaseApi.imgKey!,
+          BaseApi.subKey!,
+        );
+      }
+
+      final uri = Uri.parse(
+        '${BaseApi.apiBase}/x/web-interface/wbi/search/type',
+      ).replace(queryParameters: params);
+      final response = await http.get(
+        uri,
+        headers: BaseApi.getHeaders(withCookie: true),
+      );
+
+      if (response.statusCode == 200) {
+        final json = jsonDecode(response.body);
+        if (json['code'] == 0 && json['data'] != null) {
+          final result = json['data']['result'] as List? ?? [];
+          return result
+              .map((item) => BiliUser.fromSearch(item))
+              .where((u) => u.name.isNotEmpty)
+              .toList();
+        }
+      }
+    } catch (e) {
+      // 忽略错误
+    }
+    return [];
+  }
+
+  /// 获取音乐区排行榜 (rid=3)
+  ///
+  /// 只保留“唱出来的歌”相关子分区（综合/翻唱/现场/MV/原创…），
+  /// 乐器演奏、乐评盘点、音乐教学这些不算流行歌曲。
+  static Future<List<Video>> getMusicRanking() async {
+    try {
+      final uri = Uri.parse(
+        '${BaseApi.apiBase}/x/web-interface/ranking/v2',
+      ).replace(queryParameters: {'rid': '3', 'type': 'all'});
+
+      final response = await http.get(uri, headers: BaseApi.getHeaders());
+
+      if (response.statusCode == 200) {
+        final json = jsonDecode(response.body);
+        if (json['code'] == 0 && json['data'] != null) {
+          final list = json['data']['list'] as List? ?? [];
+          final videos = <Video>[];
+          for (final item in list) {
+            if (item is! Map) continue;
+            final tid = item['tid'] ?? 0;
+            if (!musicSongTids.contains(tid)) continue;
+            videos.add(Video.fromRecommend(Map<String, dynamic>.from(item)));
+          }
+          if (videos.isEmpty) {
+            // 万一排行榜接口改了结构，至少别把这一行弄空
+            return list
+                .whereType<Map>()
+                .map((item) => Video.fromRecommend(Map<String, dynamic>.from(item)))
+                .toList();
+          }
+          return videos;
+        }
+      }
+    } catch (e) {
+      // 忽略错误
+    }
+    return [];
+  }
+}
+
+/// UP 主搜索结果
+class BiliUser {
+  final int mid;
+  final String name;
+  final int fans;
+  final String sign;
+
+  const BiliUser({
+    required this.mid,
+    required this.name,
+    this.fans = 0,
+    this.sign = '',
+  });
+
+  factory BiliUser.fromSearch(Map<String, dynamic> json) {
+    return BiliUser(
+      mid: _toInt(json['mid']),
+      name: json['uname']?.toString() ?? '',
+      fans: _toInt(json['fans']),
+      sign: json['usign']?.toString() ?? '',
+    );
+  }
+
+  static int _toInt(dynamic value) {
+    if (value is int) return value;
+    if (value is String) return int.tryParse(value) ?? 0;
+    return 0;
+  }
+
+  /// 粉丝数（带单位）
+  String get fansFormatted {
+    if (fans >= 10000) return '${(fans / 10000).toStringAsFixed(1)}万';
+    return '$fans';
   }
 }
 

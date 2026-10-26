@@ -324,9 +324,37 @@ class SettingsService {
     await setEnabledCategories(current);
   }
 
+  // ==================== 搜索排序 ====================
+
+  /// 可选的搜索排序方式（对应 B 站搜索接口的 order 参数）
+  static const Map<String, String> searchOrderLabels = {
+    'totalrank': '综合排序',
+    'pubdate': '最新发布',
+    'click': '最多播放',
+    'dm': '最多弹幕',
+  };
+
+  static const String _searchOrderKey = 'search_order';
+
+  /// 搜索 / 主题内容的排序方式（默认综合排序）
+  ///
+  /// 搜索结果页上可以直接切换，这里记住选择的结果，
+  /// 首页的主题行也按这个排序走。
+  static String get searchOrder {
+    final saved = _prefs?.getString(_searchOrderKey);
+    if (saved != null && searchOrderLabels.containsKey(saved)) return saved;
+    return 'totalrank';
+  }
+
+  /// 设置搜索排序方式
+  static Future<void> setSearchOrder(String order) async {
+    if (!searchOrderLabels.containsKey(order)) return;
+    await init();
+    await _prefs!.setString(_searchOrderKey, order);
+  }
+
   // 快进预览模式设置
   static const String _seekPreviewModeKey = 'seek_preview_mode';
-
   /// 是否开启快进预览模式 (显示缩略图)
   static bool get seekPreviewMode {
     return _prefs?.getBool(_seekPreviewModeKey) ?? false; // 默认关闭

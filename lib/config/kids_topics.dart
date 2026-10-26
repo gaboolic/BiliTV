@@ -6,9 +6,21 @@
 /// - matchKeywords: 用于校验搜索结果的标题关键词，只有命中才算该主题内容
 /// - excludeKeywords: 标题命中任一即否决（用来挡掉投流漫剧、游戏、课程广告）
 ///
-/// 白名单**只由标题关键词决定**：没有按 UP 主放行的通道，
-/// 也不会因为看得多而自动放宽。
+/// 白名单**主要由标题关键词决定**：只有「我的 UP 主」名单里的账号是按 UP 主放行的，
+/// 其余主题依旧必须标题命中关键词，也不会因为看得多而自动放宽。
 library;
+
+/// 主题（首页的一行内容）的内容来源
+enum KidsTopicKind {
+  /// 按关键词搜索（默认）
+  search,
+
+  /// 音乐区排行榜：热门流行歌曲
+  music,
+
+  /// 指定 UP 主：内容全部来自「我的 UP 主」名单里的账号
+  upOwners,
+}
 
 /// 全局硬屏蔽词
 ///
@@ -44,6 +56,9 @@ class KidsTopic {
   /// 默认是否启用
   final bool defaultEnabled;
 
+  /// 内容来源（默认按关键词搜索）
+  final KidsTopicKind kind;
+
   const KidsTopic({
     required this.id,
     required this.label,
@@ -51,6 +66,7 @@ class KidsTopic {
     required this.matchKeywords,
     this.excludeKeywords = const [],
     this.defaultEnabled = false,
+    this.kind = KidsTopicKind.search,
   });
 
   /// 是否是用户自己添加的主题（id 不在内置目录里）
@@ -75,6 +91,7 @@ class KidsTopic {
       matchKeywords: strList(json['matchKeywords']),
       excludeKeywords: strList(json['excludeKeywords']),
       defaultEnabled: false,
+      kind: _kindFrom(json['kind']),
     );
   }
 
@@ -85,7 +102,16 @@ class KidsTopic {
     'queries': queries,
     'matchKeywords': matchKeywords,
     'excludeKeywords': excludeKeywords,
+    'kind': kind.name,
   };
+
+  static KidsTopicKind _kindFrom(dynamic value) {
+    final name = value?.toString() ?? '';
+    return KidsTopicKind.values.firstWhere(
+      (k) => k.name == name,
+      orElse: () => KidsTopicKind.search,
+    );
+  }
 }
 
 /// 内置主题目录
@@ -344,12 +370,86 @@ const List<KidsTopic> kidsTopicCatalog = [
     label: '小猪佩奇',
     queries: ['小猪佩奇', '小猪佩奇 合集'],
     matchKeywords: ['小猪佩奇', 'peppa'],
+    defaultEnabled: true,
   ),
   KidsTopic(
     id: 'paw_patrol',
-    label: '汪汪队立大功',
+    label: '汪汪队',
     queries: ['汪汪队立大功', '汪汪队 合集'],
     matchKeywords: ['汪汪队', 'paw patrol'],
+    defaultEnabled: true,
+  ),
+  KidsTopic(
+    id: 'doraemon',
+    label: '哆啦A梦',
+    queries: ['哆啦A梦', '哆啦A梦 动画', '机器猫 动画'],
+    matchKeywords: [
+      '哆啦a梦',
+      '哆啦a夢',
+      '多啦a梦',
+      '多啦a夢',
+      '机器猫',
+      'doraemon',
+      '大雄',
+      '胖虎',
+      '小夫',
+    ],
+    // 挡掉游戏、下载和成人向的「静香」同人内容
+    excludeKeywords: [
+      '游戏',
+      '手游',
+      '攻略',
+      '下载',
+      '破解',
+      '解说',
+      '腐向',
+      '本子',
+      '噩梦',
+    ],
+    defaultEnabled: true,
+  ),
+  KidsTopic(
+    id: 'boonie_bears',
+    label: '熊出没',
+    queries: ['熊出没', '熊出没 动画', '熊出没 奇幻空间'],
+    matchKeywords: ['熊出没', '熊大', '熊二', '光头强'],
+    excludeKeywords: [
+      '游戏',
+      '手游',
+      '攻略',
+      '下载',
+      '破解',
+      '解说',
+      '同人',
+      '小说',
+      '直播',
+      '录播',
+      // 熊出没的同人向恐怖视频（熊岭大崩坏之类）
+      '恐怖',
+      '吓人',
+      '诡异',
+      '血腥',
+      '崩坏',
+    ],
+    defaultEnabled: true,
+  ),
+  KidsTopic(
+    id: 'sponge_bob',
+    label: '海绵宝宝',
+    queries: ['海绵宝宝', '海绵宝宝 动画', '海绵宝宝 合集'],
+    matchKeywords: ['海绵宝宝', 'spongebob', '派大星', '章鱼哥'],
+    excludeKeywords: [
+      '游戏',
+      '手游',
+      '攻略',
+      '下载',
+      '破解',
+      '解说',
+      '同人',
+      '小说',
+      '直播',
+    ],
+    defaultEnabled: true,
   ),
   KidsTopic(
     id: 'super_wings',
@@ -411,6 +511,47 @@ const List<KidsTopic> kidsTopicCatalog = [
     queries: ['迪士尼 动画', '冰雪奇缘'],
     matchKeywords: ['迪士尼', 'disney', '冰雪奇缘', 'frozen', '艾莎'],
   ),
+  KidsTopic(
+    id: 'pop_music',
+    label: '流行音乐',
+    kind: KidsTopicKind.music,
+    // 排行榜接口挂了时的兜底搜索词
+    queries: ['流行歌曲', '热歌推荐', '新歌推荐'],
+    // 只有标题里带这些词的歌曲类视频才允许出现在搜索结果里
+    matchKeywords: [
+      '流行歌曲',
+      '流行音乐',
+      '热歌',
+      '新歌',
+      '歌曲',
+      '单曲',
+      '神曲',
+      '热单',
+      '歌单',
+      'mv',
+      '翻唱',
+      '原唱',
+      '合唱',
+      '音乐合集',
+      '歌曲合集',
+      '经典歌曲',
+      '老歌',
+      '新歌发布',
+      '新歌推荐',
+      '音乐推荐',
+    ],
+    defaultEnabled: true,
+  ),
+  KidsTopic(
+    id: 'my_ups',
+    label: '我的UP主',
+    kind: KidsTopicKind.upOwners,
+    // 内容来自「我的 UP 主」名单，不走关键词搜索
+    queries: [],
+    // 按 UP 主放行，不靠标题关键词
+    matchKeywords: [],
+    defaultEnabled: true,
+  ),
 ];
 
 /// 默认启用的主题 id 列表
@@ -418,3 +559,18 @@ List<String> get defaultEnabledTopicIds => kidsTopicCatalog
     .where((topic) => topic.defaultEnabled)
     .map((topic) => topic.id)
     .toList();
+
+/// 音乐区里“算流行歌曲”的子分区（按 tid，排行榜接口给的是这个）
+///
+/// 130 音乐综合 / 31 翻唱 / 29 音乐现场 / 193 MV / 28 原创音乐 / 30 VOCALOID·UTAU
+const Set<int> musicSongTids = {130, 31, 29, 193, 28, 30};
+
+/// 同上，按子分区名（搜索接口只给名字，不给 tid）
+const Set<String> musicSongAreaNames = {
+  '音乐综合',
+  '翻唱',
+  '音乐现场',
+  'MV',
+  '原创音乐',
+  'VOCALOID·UTAU',
+};

@@ -6,6 +6,7 @@ import 'package:keframe/keframe.dart';
 import '../../../models/video.dart';
 import '../../../services/kids_feed_service.dart';
 import '../../../services/kids_mode_service.dart';
+import '../../../services/settings_service.dart';
 import '../../../widgets/tv_video_card.dart';
 import '../../player/player_screen.dart';
 
@@ -32,7 +33,7 @@ class _SearchResultsViewState extends State<SearchResultsView> {
 
   // Pagination & Sorting State
   int _currentPage = 1;
-  String _currentOrder = 'totalrank'; // totalrank, click, pubdate, dm
+  String _currentOrder = SettingsService.searchOrder; // totalrank, click, pubdate, dm
   bool _isLoadingMore = false;
   bool _hasMore = true;
   bool _isRefreshing = false; // 用于控制分帧渲染
@@ -42,12 +43,7 @@ class _SearchResultsViewState extends State<SearchResultsView> {
   final Map<int, FocusNode> _videoFocusNodes = {};
   bool _shouldFocusFirstResult = false;
 
-  final Map<String, String> _sortOptions = {
-    'totalrank': '综合排序',
-    'click': '最多播放',
-    'pubdate': '最新发布',
-    'dm': '最多弹幕',
-  };
+  final Map<String, String> _sortOptions = SettingsService.searchOrderLabels;
 
   @override
   void initState() {
@@ -150,6 +146,13 @@ class _SearchResultsViewState extends State<SearchResultsView> {
     setState(() => _isLoadingMore = true);
     _currentPage++;
     await _searchVideos(reset: false);
+  }
+
+  /// 切换排序方式，并记住这个选择（首页的主题行也按它来）
+  void _changeOrder(String order) {
+    setState(() => _currentOrder = order);
+    SettingsService.setSearchOrder(order);
+    _searchVideos(reset: true);
   }
 
   void _onVideoTap(Video video) {
@@ -363,14 +366,12 @@ class _SearchResultsViewState extends State<SearchResultsView> {
                         focusNode: _sortFocusNodes[idx],
                         onTap: () {
                           if (!isSelected) {
-                            setState(() => _currentOrder = entry.key);
-                            _searchVideos(reset: true);
+                            _changeOrder(entry.key);
                           }
                         },
                         onFocus: () {
                           if (!isSelected) {
-                            setState(() => _currentOrder = entry.key);
-                            _searchVideos(reset: true);
+                            _changeOrder(entry.key);
                           }
                         },
                       ),

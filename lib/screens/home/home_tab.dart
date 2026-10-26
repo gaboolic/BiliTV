@@ -103,6 +103,18 @@ class HomeTabState extends State<HomeTab> {
     return _categories[index].label;
   }
 
+  /// 一行没有内容时给的提示
+  String _emptyHint(int index) {
+    if (_kidsMode &&
+        index >= 0 &&
+        index < _kidsTopics.length &&
+        _kidsTopics[index].kind == KidsTopicKind.upOwners &&
+        KidsModeService.upOwners.isEmpty) {
+      return '还没指定 UP 主，去「设置 → 儿童模式」里添加';
+    }
+    return '按确定键重新加载，或换个主题';
+  }
+
   /// 儿童模式开关/主题变化后重建首页
   void _onKidsModeChanged() {
     if (!mounted) return;
@@ -352,9 +364,12 @@ class HomeTabState extends State<HomeTab> {
                           ),
                         ),
                         const SizedBox(height: 6),
-                        const Text(
-                          '按确定键重新加载，或换个主题',
-                          style: TextStyle(color: Colors.white24, fontSize: 13),
+                        Text(
+                          _emptyHint(_selectedCategoryIndex),
+                          style: const TextStyle(
+                            color: Colors.white24,
+                            fontSize: 13,
+                          ),
                         ),
                       ],
                     ),

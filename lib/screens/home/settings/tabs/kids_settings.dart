@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../../../config/kids_topics.dart';
+import '../../../../services/bilibili_api.dart';
 import '../../../../services/kids_mode_service.dart';
 import '../../../../services/local_server.dart';
+import '../../../../services/settings_service.dart';
 import '../widgets/setting_action_row.dart';
 import '../widgets/setting_toggle_row.dart';
 
@@ -62,11 +64,121 @@ class _KidsSettingsState extends State<KidsSettings> {
     return result ?? false;
   }
 
+  /// 主题的副标题（不同来源的说法不一样）
+  String _topicSubtitle(KidsTopic topic) {
+    switch (topic.kind) {
+      case KidsTopicKind.music:
+        return '音乐区排行榜：热门流行歌曲';
+      case KidsTopicKind.upOwners:
+        return '内容来自下面的「我的 UP 主」名单';
+      case KidsTopicKind.search:
+        return '搜索词：${topic.queries.join(' / ')}';
+    }
+  }
+
+  /// 添加 UP 主：先输入昵称搜账号，再从候选里挑一个
+  Future<void> _addUpOwner() async {
+    final controller = TextEditingController();
+
+    final keyword = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF2A2A2A),
+        title: const Text('添加 UP 主', style: TextStyle(color: Colors.white)),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          style: const TextStyle(color: Colors.white, fontSize: 18),
+          decoration: const InputDecoration(
+            hintText: '输入 UP 主昵称',
+            hintStyle: TextStyle(color: Colors.white38),
+            enabledBorder: UnderlineInputBorder(
+              borderSide: BorderSide(color: Colors.white24),
+            ),
+            focusedBorder: UnderlineInputBorder(
+              borderSide: BorderSide(color: Color(0xFFfb7299)),
+            ),
+          ),
+          onSubmitted: (value) => Navigator.of(context).pop(value),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('取消', style: TextStyle(color: Colors.white54)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(controller.text),
+            child: const Text('搜索', style: TextStyle(color: Color(0xFFfb7299))),
+          ),
+        ],
+      ),
+    );
+
+    final name = keyword?.trim() ?? '';
+    if (name.isEmpty || !mounted) return;
+
+    // 搜索候选账号
+    final users = await BilibiliApi.searchUsers(name);
+    if (!mounted) return;
+
+    if (users.isEmpty) {
+      SettingsService.toast(context, '没有找到「$name」这个账号');
+      return;
+    }
+
+    if (!mounted) return;
+    final picked = await _pickUpOwner(users);
+    if (picked == null || !mounted) return;
+
+    await KidsModeService.addUpOwner(name: picked.name, mid: picked.mid);
+    if (mounted) setState(() {});
+  }
+
+  /// 从候选账号里挑一个
+  Future<BiliUser?> _pickUpOwner(List<BiliUser> users) {
+    return showDialog<BiliUser>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF2A2A2A),
+        title: const Text('选择账号', style: TextStyle(color: Colors.white)),
+        content: SizedBox(
+          width: 420,
+          height: 320,
+          child: ListView.builder(
+            itemCount: users.length,
+            itemBuilder: (context, index) {
+              final user = users[index];
+              return ListTile(
+                focusColor: const Color(0xFFfb7299).withValues(alpha: 0.25),
+                title: Text(
+                  user.name,
+                  style: const TextStyle(color: Colors.white, fontSize: 17),
+                ),
+                subtitle: Text(
+                  'UID ${user.mid} · 粉丝 ${user.fansFormatted}',
+                  style: const TextStyle(color: Colors.white38, fontSize: 12),
+                ),
+                onTap: () => Navigator.of(context).pop(user),
+              );
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('取消', style: TextStyle(color: Colors.white54)),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final enabled = KidsModeService.enabled;
     final topics = kidsTopicCatalog;
     final customTopics = KidsModeService.customTopics;
+    final upOwners = KidsModeService.upOwners;
     final serverAddress = LocalServer.instance.address;
     final configUrl = serverAddress == null ? null : '$serverAddress/kids';
 
@@ -217,6 +329,61 @@ class _KidsSettingsState extends State<KidsSettings> {
         },
       ),
 
+      // ==================== 我的 UP 主 ====================
+      Padding(
+        padding: const EdgeInsets.only(top: 16, bottom: 8),
+        child: Row(
+          children: [
+            const Icon(Icons.person_pin, color: Color(0xFFfb7299), size: 20),
+            const SizedBox(width: 8),
+            const Text(
+              '我的 UP 主名单',
+              style: TextStyle(
+                color: Color(0xFFfb7299),
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
+        ),
+      ),
+      Padding(
+        padding: const EdgeInsets.only(bottom: 8),
+        child: Text(
+          '首页「我的UP主」一行只放这些账号的投稿；'
+          '他们的视频在儿童模式下也会直接放行（不受标题关键词限制）。\n'
+          '在电视上用遥控器输中文很麻烦，推荐用手机打开设置页里的网址来增删。',
+          style: TextStyle(
+            color: Colors.white.withValues(alpha: 0.55),
+            fontSize: 13,
+            height: 1.5,
+          ),
+        ),
+      ),
+
+      ...upOwners.map((owner) {
+        return SettingActionRow(
+          label: owner.name,
+          value: owner.mid > 0 ? 'UID ${owner.mid}' : '未找到账号（只按昵称匹配）',
+          buttonLabel: '删除',
+          sidebarFocusNode: widget.sidebarFocusNode,
+          onTap: () async {
+            if (await _confirm('删除 UP 主', '确定把「${owner.name}」移出名单吗？')) {
+              await KidsModeService.removeUpOwner(name: owner.name);
+              if (mounted) setState(() {});
+            }
+          },
+        );
+      }),
+
+      SettingActionRow(
+        label: '添加 UP 主',
+        value: '按昵称搜索账号后从候选里挑一个',
+        buttonLabel: '添加',
+        sidebarFocusNode: widget.sidebarFocusNode,
+        onTap: _addUpOwner,
+      ),
+
       // 自定义主题（网页里添加的，这里可以删）
       ...customTopics.map((topic) {
         return SettingActionRow(
@@ -234,14 +401,12 @@ class _KidsSettingsState extends State<KidsSettings> {
       }),
 
       // 主题开关
-      ...topics.asMap().entries.map((entry) {
-        final topic = entry.value;
-        final isLast = entry.key == topics.length - 1;
+      ...topics.map((topic) {
         return SettingToggleRow(
           label: topic.label,
-          subtitle: '搜索词：${topic.queries.join(' / ')}',
+          subtitle: _topicSubtitle(topic),
           value: KidsModeService.isTopicEnabled(topic.id),
-          isLast: isLast,
+          isLast: true,
           sidebarFocusNode: widget.sidebarFocusNode,
           onChanged: (value) async {
             await KidsModeService.setTopicEnabled(topic.id, value);

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../../../services/settings_service.dart';
 import '../../../../core/focus/focus_navigation.dart';
+import '../widgets/setting_dropdown_row.dart';
 import '../widgets/setting_toggle_row.dart';
 
 class InterfaceSettings extends StatefulWidget {
@@ -128,6 +129,22 @@ class _InterfaceSettingsState extends State<InterfaceSettings> {
           sidebarFocusNode: widget.sidebarFocusNode,
           onChanged: (value) async {
             await SettingsService.setAlwaysShowPlayerTime(value);
+            setState(() {});
+          },
+        ),
+        const SizedBox(height: 16),
+        // 内容排序（搜索结果页和首页主题行共用）
+        SettingDropdownRow<String>(
+          label: '内容排序',
+          subtitle: '搜索页和首页主题行共用；首页的主题行按确定键刷新后生效',
+          value: SettingsService.searchOrder,
+          items: SettingsService.searchOrderLabels.keys.toList(),
+          itemLabel: (key) =>
+              SettingsService.searchOrderLabels[key] ?? key,
+          sidebarFocusNode: widget.sidebarFocusNode,
+          onChanged: (value) async {
+            if (value == null) return;
+            await SettingsService.setSearchOrder(value);
             setState(() {});
           },
         ),

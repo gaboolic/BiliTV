@@ -1,7 +1,9 @@
 import '../config/kids_topics.dart';
+import '../config/kids_up_owners.dart';
 import '../models/video.dart';
 import 'bilibili_api.dart';
 import 'kids_mode_service.dart';
+import 'settings_service.dart';
 
 /// 一次带过滤的搜索分页结果
 class KidsSearchPage {
@@ -38,11 +40,32 @@ class KidsFeedService {
     KidsTopic topic, {
     int page = 1,
   }) async {
+    switch (topic.kind) {
+      case KidsTopicKind.music:
+        return _loadMusicFeed(topic, page: page);
+      case KidsTopicKind.upOwners:
+        return _loadUpOwnerFeed(page: page);
+      case KidsTopicKind.search:
+        return _loadSearchFeed(topic, page: page);
+    }
+  }
+
+  /// 关键词搜索（普通主题）
+  ///
+  /// 排序方式跟搜索结果页共用同一个设置（默认综合排序，可在搜索页切换）。
+  static Future<List<Video>> _loadSearchFeed(
+    KidsTopic topic, {
+    int page = 1,
+  }) async {
     final queries = topic.queries.isEmpty ? [topic.label] : topic.queries;
     final queryIndex = (page - 1) % queries.length;
     final subPage = ((page - 1) ~/ queries.length) + 1;
 
-    final raw = await BilibiliApi.searchVideos(queries[queryIndex], page: subPage);
+    final raw = await BilibiliApi.searchVideos(
+      queries[queryIndex],
+      page: subPage,
+      order: SettingsService.searchOrder,
+    );
 
     final matched = <String, Video>{};
     for (final video in raw) {
@@ -53,6 +76,113 @@ class KidsFeedService {
 
     final videos = matched.values.toList();
     return videos;
+  }
+
+  /// 流行音乐：优先用音乐区排行榜，接口挂了再退回关键词搜索
+  static Future<List<Video>> _loadMusicFeed(
+    KidsTopic topic, {
+    int page = 1,
+  }) async {
+    var videos = await BilibiliApi.getMusicRanking();
+
+    if (videos.isEmpty) {
+      // 排行榜拿不到内容时，用「流行歌曲 / 热歌推荐 / 新歌推荐」兜底
+      final queries = topic.queries.isEmpty ? ['流行歌曲'] : topic.queries;
+      final query = queries[(page - 1) % queries.length];
+      videos = await BilibiliApi.searchVideos(query, page: page);
+    } else if (videos.length > _pageSize) {
+      // 排行榜一次就返回全部，用轮转的方式实现“向下翻页”
+      final start = ((page - 1) * _pageSize) % videos.length;
+      final end = start + _pageSize;
+      videos = end <= videos.length
+          ? videos.sublist(start, end)
+          : [
+              ...videos.sublist(start),
+              ...videos.sublist(0, end - videos.length),
+            ];
+    }
+
+    final result = videos.where((v) => v.bvid.isNotEmpty).toList();
+    // 这些内容是主动挑过的，直接放行，别被标题白名单挡掉
+    KidsModeService.allowVideos(topic.id, result);
+    return result;
+  }
+
+  /// 我的 UP 主：把名单里每个 UP 主的投稿混在一起
+  static Future<List<Video>> _loadUpOwnerFeed({int page = 1}) async {
+    final owners = await KidsModeService.resolveUpOwners();
+    if (owners.isEmpty) return [];
+
+    const topicId = 'my_ups';
+    final perOwner = 10;
+    final lists = <List<Video>>[];
+
+    for (final owner in owners) {
+      var videos = <Video>[];
+
+      if (owner.mid > 0) {
+        videos = await BilibiliApi.getSpaceVideos(mid: owner.mid, page: page);
+      }
+
+      if (videos.isEmpty) {
+        // 空间接口被风控 / 没数据时，退回“按名字搜索 + 只留本人投稿”
+        final collected = <Video>[];
+        for (var p = 1; p <= 3 && collected.length < perOwner; p++) {
+          final raw = await BilibiliApi.searchVideos(owner.name, page: p);
+          if (raw.isEmpty) break;
+          for (final video in raw) {
+            if (_isOwner(video, owner)) collected.add(video);
+          }
+        }
+        videos = collected;
+      }
+
+      if (videos.isNotEmpty) {
+        lists.add(videos.take(perOwner).toList());
+      }
+    }
+
+    if (lists.isEmpty) return [];
+
+    // 轮流取，保证一行里几个 UP 主都有
+    final merged = <Video>[];
+    final seen = <String>{};
+    for (var i = 0; i < perOwner; i++) {
+      for (final list in lists) {
+        if (i >= list.length) continue;
+        final video = list[i];
+        if (video.bvid.isEmpty || seen.contains(video.bvid)) continue;
+        seen.add(video.bvid);
+        merged.add(video);
+      }
+    }
+
+    // 同样是主动挑过的内容，直接放行
+    KidsModeService.allowVideos(topicId, merged);
+    return merged;
+  }
+
+  /// 判断一个视频是不是这个 UP 主的
+  ///
+  /// 有 UID 就按 UID 比（最准），没有才退回昵称比对。
+  static bool _isOwner(Video video, KidsUpOwner owner) {
+    if (owner.mid > 0 && video.ownerMid > 0) {
+      return video.ownerMid == owner.mid;
+    }
+    return _isSameOwner(video.ownerName, owner.name);
+  }
+
+  /// 判断两个昵称是不是同一个 UP 主
+  ///
+  /// 昵称可能带前后缀（「怪逗逗」↔「怪逗逗小舞台」），
+  /// 所以用“互相包含”来判断，太短的名字不参与，避免误伤。
+  static bool _isSameOwner(String author, String target) {
+    final a = author.trim().toLowerCase();
+    final t = target.trim().toLowerCase();
+    if (a.isEmpty || t.isEmpty) return false;
+    if (a == t) return true;
+    if (a.length < 2 || t.length < 2) return false;
+    return a.contains(t) || t.contains(a);
   }
 
   /// 播放器的“更多视频”与自动连播

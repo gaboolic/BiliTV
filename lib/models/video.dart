@@ -18,6 +18,7 @@ class Video {
   final int historyVideos; // 历史记录中的总分P数 (多P视频 > 1)
   final String badge; // 角标 (如 "付费", "充电专属")
   final bool isLive; // 是否是直播
+  final String areaName; // 分区名 (如 "音乐综合", "动画")
 
   Video({
     required this.bvid,
@@ -38,6 +39,7 @@ class Video {
     this.historyVideos = 0,
     String badge = '',
     this.isLive = false,
+    this.areaName = '',
   }) : badge = _filterBadge(badge);
 
   static String _filterBadge(String badge) {
@@ -63,6 +65,8 @@ class Video {
       pubdate: json['pubdate'] ?? 0,
       // 推荐流中可能有 badge 信息，如 "充电专属"
       badge: json['badge'] ?? '',
+      // 分区名（排行榜接口给的是 tname）
+      areaName: json['tname'] ?? '',
     );
   }
 
@@ -122,6 +126,8 @@ class Video {
       duration: _parseDuration(json['duration'] ?? ''),
       pubdate: json['pubdate'] ?? 0,
       badge: json['badge'] ?? '',
+      // 搜索接口给的是 typename（子分区名，如 "音乐综合"）
+      areaName: json['typename'] ?? '',
     );
   }
 
